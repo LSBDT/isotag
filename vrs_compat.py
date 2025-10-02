@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VRS-Compatible Module for IsoTag v1.0
+VRS-Compatible Module for IsoTag v6.0
 
 Contains official VRS code copied from GA4GH VRS-Python implementation
 for strict VRS compliance in VARSID calculation.

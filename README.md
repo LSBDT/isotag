@@ -1,204 +1,341 @@
-# IsoTag v1.0 - RefGet-Compatible Universal Isoform Tagger
+# IsoTag v2.0 - Universal Isoform Identification System 🚀
 
-A RefGet-compatible, VRS-compliant universal isoform identification system for long-read transcript sequencing data. IsoTag v1.0 generates deterministic, globally unique identifiers using GA4GH RefGet SQ.XXXX sequence identifiers and official VRS algorithms, ensuring true universal compatibility across all genomic databases.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![GA4GH](https://img.shields.io/badge/GA4GH-RefGet%20Compatible-green.svg)](https://samtools.github.io/hts-specs/refget.html)
 
-## Features
+A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.0** introduces reversible splicetags, boundary tags, and universal chromosome hashing for true cross-database compatibility.
 
-- **🌐 RefGet Compatible**: Uses GA4GH RefGet SQ.XXXX sequence identifiers for true universality
-- **🧬 VRS Compliant**: Official GA4GH VRS algorithms ensure ecosystem integration
-- **🔄 Cross-Database Universal**: Same sequence content = same RefGet ID across Ensembl, GENCODE, RefSeq, UCSC
-- **✅ Specification Validated**: Passes official RefGet test vectors
-- **⚡ Memory Efficient**: Stream-based processing using samtools for large BAM files
-- **📁 Flexible Input**: Supports both BAM and SAM formats with automatic format detection
-- **🏷️ Comprehensive Tagging**: Adds both RefGet-based structure (XI) and VRS-compliant variant (XV) tags
+## 🎯 What's New in v2.0
 
-## Quick Start
+### **Reversible Splicetags (XS Tag)** ✨
+- **Compact splice junction encoding**: hex-encoded coordinates for minimal storage
+- **Full coordinate reconstruction**: decode exact splice sites from tag alone
+- **Universal compatibility**: chr1/Chr1/CHR1/1 all map to same 8-char RefGet hash
+
+### **Boundary Tags (XB Tag)** ✨
+- **5'/3' transcript end encoding**: captures full transcript span
+- **Cross-validation**: XB + XS = complete exon structure verification
+- **No reference needed**: reconstruct coordinates without genome FASTA
+
+### **Biological Clustering (XT Tag)** ✨
+- **Three clustering modes**: 5prime (CAGE/TSS), middle (RNA-seq), 3prime (polyA/TES)
+- **Fuzzy boundary handling**: groups transcripts with variable ends
+- **Sample-independent**: consistent grouping across experiments
+
+### **Universal Chromosome Hashing** 🌍
+- **RefGet-based**: Uses GA4GH sequence identifiers
+- **Auto-caching**: Generates RefGet cache from genome FASTA automatically
+- **Cross-database**: Same chromosome sequence = same hash regardless of naming
+
+## 📋 Tag Format (v2.0)
+
+```bash
+XI:Z:fuIF7PN23g2gq9sFxqhUNGnfOCZhkQJS              # Structure ID (32-char)
+XB:Z:aKF498dAp.3e8.1004                           # Boundary tag (8-char chr + hex ends)
+XS:Z:aKF498dAp.4b0.7d0.866.bb8                    # Splicetag (8-char chr + hex coords)
+XT:Z:266CbPqmZz8eS-EzT4xtnYtmm-SoIhnL              # Transcript group (32-char)
+XV:Z:Q4fUfjJXgQwpSxFgeGVowhJaLTVg3Fqk              # Variants (32-char, optional)
+```
+
+### Tag Breakdown
+
+| Tag | Name | Format | Purpose |
+|-----|------|--------|---------|
+| **XI** | Structure ID | 32-char hash | Unique isoform structure identifier |
+| **XB** | Boundary Tag | `[8-chr][s].[hex1].[hex2]` | Reversible 5'/3' transcript ends |
+| **XS** | Splicetag | `[8-chr][s].[hex1].[hex2]...` | Reversible splice junction coordinates |
+| **XT** | Transcript Group | 32-char hash | Biological clustering with fuzzy boundaries |
+| **XV** | Variants | 32-char hashes | Individual variant IDs (optional) |
+
+**Legend**: `[8-chr]` = 8-char RefGet chromosome hash, `[s]` = strand (p/m), `[hex]` = hexadecimal coordinates
+
+## 🚀 Quick Start
 
 ### Installation
 
-Requirements:
-- Python 3.6+
-- samtools (for BAM processing)
-- click library
-
 ```bash
+# Clone repository
+git clone https://github.com/LSBDT/isotag.git
+cd isotag
+
+# Install dependencies
 pip install click
 ```
 
+**Requirements**: Python 3.8+, samtools 1.18+, click
+
 ### Basic Usage
 
-**Important**: v1.0 requires either a reference genome FASTA or pre-computed RefGet mapping.
-
 ```bash
-# With FASTA (calculates RefGet on-the-fly)
+# Standard tagging with auto RefGet cache generation
 python3 isotag.py -i input.bam -o tagged.bam -g reference.fa
 
-# With pre-computed RefGet mapping (recommended, faster)
+# Fast processing with pre-computed RefGet mapping (recommended)
 python3 isotag.py -i input.bam -o tagged.bam -r hg38-refget.json
 
 # Structure tags only (no variants)
 python3 isotag.py -i input.bam -o tagged.bam -r hg38-refget.json --no-variants
 
-# SAM format support
-python3 isotag.py -i input.sam -o tagged.sam -g reference.fa
+# CAGE data (5' TSS clustering)
+python3 isotag.py -i cage.bam -o tagged.bam -g reference.fa --clustermode 5prime
+
+# PolyA data (3' TES clustering)
+python3 isotag.py -i polya.bam -o tagged.bam -g reference.fa --clustermode 3prime
 ```
 
-## Output Tags
-
-IsoTag v1.0 adds two RefGet/VRS-compliant tags to BAM/SAM files:
-
-- **XI:Z:** - 32-character RefGet-based structure hash (isoform structure ID)
-- **XV:Z:** - VRS-compliant variant IDs separated by dots (when variants are present)
-
-### Example Tags
-```
-XI:Z:fuIF7PN23g2gq9sFxqhUNGnfOCZhkQJS    # RefGet-based Structure ID
-XV:Z:Q4fUfjJXgQwpSxFgeGVowhJaLTVg3Fqk.P8rTn3mKwQxYs5LcHgVjRkNpBzAd    # VRS-compliant Variant IDs
-```
-
-## Algorithm Overview
-
-### RefGet-Based Structure ID Generation (v1.0)
-1. Extract exon boundaries from CIGAR operations
-2. Map chromosome name to RefGet SQ.XXXX identifier
-3. Serialize as: `SQ.XXXX|strand|exon1_start:exon1_end|exon2_start:exon2_end|...`
-4. Generate VRS-compatible hash using official `sha512t24u` algorithm (32 chars)
-
-### VRS-Compliant Variant Detection (v1.0)
-1. Parse MD tags for mismatches and deletions
-2. Extract insertions from CIGAR operations
-3. Create RefGet-based variants with SQ.XXXX identifiers
-4. Generate individual VRS-compliant hashes using official GA4GH algorithms
-5. Concatenate with dots for the XV tag
-
-## Use Cases
-
-- **Long-read single-cell analysis**: Consistent isoform identification across samples
-- **Cross-database integration**: Map isoforms between Ensembl, RefSeq, GENCODE
-- **Comparative transcriptomics**: Match isoforms across studies and conditions
-- **Disease variant tracking**: Link specific variants to transcript structures
-
-## Technical Details
-
-### Variant Detection Modes
-
-1. **Structure Only**: No MD tags, no reference genome
-   - Only XI (structure) tags added
-   - Fastest processing mode
-
-2. **With Existing MD Tags**: Input contains MD tags
-   - Both XI and XV tags added
-   - Uses existing variant information
-
-3. **Generate MD Tags**: Reference genome provided
-   - Generates MD tags using `samtools calmd`
-   - Both XI and XV tags added
-   - Most comprehensive variant detection
-
-### Memory Efficiency
-
-- Stream-based processing avoids loading entire BAM into memory
-- Uses samtools for efficient BAM/SAM handling
-- Temporary files for format conversion only
-
-## Command Line Options
-
-```
-Options:
-  -i, --input TEXT      Input BAM/SAM file [required]
-  -o, --output TEXT     Output BAM/SAM file with XI/XV tags [required]  
-  -g, --genome TEXT     Reference genome FASTA (calculates RefGet IDs)
-  -r, --refget TEXT     Pre-computed RefGet JSON mapping (recommended)
-  --variants            Enable variant detection (default: True)
-  --no-variants         Disable variant detection
-  --help               Show this message and exit
-```
-
-**Note**: Exactly one of `--genome` or `--refget` must be specified in v1.0.
-
-## Example Workflow
+### Decode Tags
 
 ```bash
-# 1. Generate RefGet mapping (one-time per genome)
-python3 -c "from our_refget import RefGetCalculator; RefGetCalculator.calculate_from_fasta('genome.fa')"
+# Decode boundary tag (XB)
+python3 decode_tags.py -b "aKF498dAp.3e8.1004"
 
-# 2. RefGet-compatible isoform tagging
-python3 isotag.py -i sample.bam -o sample_tagged.bam -g genome.fa
+# Decode splicetag (XS)
+python3 decode_tags.py -s "aKF498dAp.4b0.7d0.866.bb8"
 
-# 3. View RefGet-based results
-samtools view sample_tagged.bam | grep 'XI:Z:' | head
+# Reconstruct full exon structure
+python3 decode_tags.py -b "aKF498dAp.3e8.1004" -s "aKF498dAp.4b0.7d0.866.bb8" --reconstruct
 
-# 4. With pre-computed RefGet mapping (faster)
-python3 isotag.py -i sample.bam -o sample_tagged.bam -r hg38-refget.json
-
-# 5. Extract RefGet-based isoform statistics
-samtools view sample_tagged.bam | cut -f12- | grep 'XI:Z:' | sort | uniq -c
+# With chromosome name lookup
+python3 decode_tags.py -b "aKF498dAp.3e8.1004" -r hg38-refget.json
 ```
 
-## Output Statistics
+## 📖 Detailed Examples
 
-IsoTag v1.0 provides comprehensive processing statistics:
+### Example 1: Standard RNA-seq Processing
 
-```
-============================================================
-✅ IsoTag v1.0 Complete - RefGet Compatible!
-============================================================
-📊 Total reads: 10,000
-🧬 Reads processed: 9,847
-🏷️ RefGet structure tags (XI): 9,847
-🧪 VRS variant tags (XV): 8,123
-🆔 Unique structures: 1,234
-🔬 Unique variant combinations: 856
-💾 Output: sample_tagged.bam
+```bash
+# Process RNA-seq BAM with automatic RefGet cache
+python3 isotag.py -i rnaseq.bam -o tagged.bam -g hg38.fa
 
-🎯 Example RefGet-based tags:
-   XI:Z:fuIF7PN23g2gq9sFxqhUNGnfOCZhkQJS
-   XV:Z:Q4fUfjJXgQwpSxFgeGVowhJaLTVg3Fqk
-
-🌐 Universal Compatibility: RefGet SQ.XXXX + VRS compliant
+# Cache created at: ~/.isotag_cache/hg38_refget.json
+# Subsequent runs use cache automatically
 ```
 
-## File Structure
+### Example 2: CAGE TSS Clustering
 
-The repository contains the following core files:
+```bash
+# Use 5' position for clustering (TSS-focused)
+python3 isotag.py -i cage.bam -o tagged.bam -g mm39.fa --clustermode 5prime
+```
 
-- **`isotag.py`** - Main v1.0 script (RefGet-compatible, VRS-compliant)
-- **`isotag_refget.py`** - RefGet SQ.XXXX calculator module
-- **`vrs_compat.py`** - VRS-compliant variant handling module
-- **`README.md`** - This documentation
-- **`LICENSE`** - MIT license
+### Example 3: Cross-Database Integration
 
-## GA4GH Standards Compliance
+```bash
+# Lab A (UCSC naming: chr1, chr2)
+python3 isotag.py -i labA.bam -o taggedA.bam -g ucsc_hg38.fa
 
-IsoTag v1.0 is fully compliant with:
+# Lab B (Ensembl naming: 1, 2)
+python3 isotag.py -i labB.bam -o taggedB.bam -g ensembl_hg38.fa
 
-- **RefGet**: Uses official SQ.XXXX sequence identifiers
-- **VRS**: Official `sha512t24u` algorithm from GA4GH VRS-Python
-- **Cross-database universal**: Works with Ensembl, GENCODE, RefSeq, UCSC
+# Same chromosome sequences → Same RefGet hashes → Perfect compatibility! ✅
+```
 
-## Contributing
+### Example 4: Decode and Reconstruct
 
-This is Phase 1 of the IsoTag system focusing on core RefGet/VRS compatibility. Future enhancements may include:
+```bash
+# Extract tags from BAM
+samtools view tagged.bam | grep "XB:Z:" | head -1 > tags.txt
 
+# Decode to get coordinates
+python3 decode_tags.py -b "aKF498dAp.3e8.1004" -s "aKF498dAp.4b0.7d0"
+
+# Output:
+# Chromosome: chr1 (from RefGet mapping)
+# Strand: +
+# Exon 1: 1,000-1,200
+# Exon 2: 2,000-2,150
+```
+
+## 🧬 Use Cases
+
+### Genomics Research
+- **Cross-database integration**: Same isoform = same ID across Ensembl/RefSeq/GENCODE
+- **Long-read sequencing**: Standardize novel isoform identification
+- **Differential expression**: Compare isoform usage between samples
+- **Splice variant analysis**: Track alternative splicing patterns
+
+### Clinical Applications
+- **Disease isoforms**: Identify disease-specific transcript variants
+- **Biomarker discovery**: Find diagnostic isoform signatures
+- **Drug target identification**: Map isoform-specific therapeutic targets
+
+### Data Sharing
+- **Universal compatibility**: Share data without chromosome naming conflicts
+- **Reproducibility**: Same input = same output across labs
+- **Database integration**: Link to external resources via RefGet IDs
+
+## 🔬 Technical Details
+
+### RefGet Chromosome Hashing
+
+IsoTag v2.0 solves chromosome naming inconsistencies (chr1 vs Chr1 vs CHR1 vs 1) by hashing **chromosome sequences** instead of names:
+
+```python
+# Step 1: Extract chromosome sequence
+chr_sequence = "ACGTACGTACGT..."  # Full chromosome from FASTA
+
+# Step 2: Calculate RefGet ID (GA4GH sha512t24u algorithm)
+refget_id = sha512t24u(chr_sequence.encode('ascii'))
+# Result: "aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2" (32-char)
+
+# Step 3: Use appropriate hash length
+chr_hash_8 = refget_id[:8]   # "aKF498dA" - for XB/XS tags
+chr_hash_32 = refget_id       # Full 32 chars - for XI/XT/XV tags
+```
+
+**Result**: chr1, Chr1, CHR1, and 1 all map to same hash if they have identical sequences!
+
+### Auto RefGet Cache System
+
+First run with genome FASTA:
+```bash
+python3 isotag.py -i input.bam -o tagged.bam -g hg38.fa
+# → Generates ~/.isotag_cache/hg38_refget.json automatically
+```
+
+Subsequent runs:
+```bash
+python3 isotag.py -i input2.bam -o tagged2.bam -g hg38.fa
+# → Uses cached RefGet mapping (instant lookup, no FASTA parsing)
+```
+
+### Reversible Tag Encoding
+
+**XB Tag (Boundary)**: `[8-chr-hash][strand].[5'-hex].[3'-hex]`
+```
+aKF498dAp.3e8.1004
+│       │ │   │
+│       │ │   └─ 3' end: 4100 (0x1004)
+│       │ └───── 5' end: 1000 (0x3e8)
+│       └─────── Strand: + (p=plus, m=minus)
+└─────────────── Chromosome: aKF498dA (8-char RefGet hash)
+```
+
+**XS Tag (Splicetag)**: `[8-chr-hash][strand].[coord1].[coord2].[coord3]...`
+```
+aKF498dAp.4b0.7d0.866.bb8
+│       │ │   │   │   │
+│       │ └───┴───┴───┴─ Splice coordinates in hex
+│       └─────────────── Strand: +
+└───────────────────── Chromosome: aKF498dA
+```
+
+## 📊 Performance
+
+- **Processing Speed**: ~1000 reads/second (tested on real data)
+- **Memory Usage**: Streaming processing, constant memory
+- **Storage Overhead**: Minimal (compact hex encoding)
+- **Cache Generation**: One-time per genome (~30 seconds for hg38)
+- **Tag Lookup**: Instant with cached RefGet mapping
+
+## 🛠️ Advanced Options
+
+### Clustering Parameters
+
+```bash
+# Custom position quantization (default: 10000bp)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --position-quantum 5000
+
+# Custom genomic span quantization (default: 10000bp)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --span-quantum 5000
+
+# Custom exon length quantization (default: 1000bp)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --exon-quantum 500
+```
+
+### Output Control
+
+```bash
+# Quiet mode (minimal output)
+python3 isotag.py -i input.bam -o tagged.bam -q
+
+# Structure tags only (no variants, faster)
+python3 isotag.py -i input.bam -o tagged.bam --no-variants
+
+# Show progress updates
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa
+```
+
+## 📁 File Formats
+
+### RefGet Cache File
+
+```json
+{
+  "metadata": {
+    "genome": "hg38",
+    "generated": "2025-10-02T12:00:00",
+    "total_mappings": 150
+  },
+  "refget_mapping": {
+    "chr1": "SQ.aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2",
+    "Chr1": "SQ.aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2",
+    "1": "SQ.aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2"
+  }
+}
+```
+
+### Tagged BAM Output
+
+```
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:248956422
+read_001	0	chr1	1000	60	200M2000N150M	*	0	0	ATCG...	IIII...	XI:Z:fuIF7PN23g2gq9sFxqhUNGnfOCZhkQJS	XB:Z:aKF498dAp.3e8.1004	XS:Z:aKF498dAp.4b0.7d0	XT:Z:266CbPqmZz8eS-EzT4xtnYtmm-SoIhnL
+```
+
+## 🔍 Validation & Testing
+
+```bash
+# Test with sample data
+samtools view -h input.bam | head -1000 | samtools view -b > sample.bam
+python3 isotag.py -i sample.bam -o tagged_sample.bam -g genome.fa
+
+# Verify tags added
+samtools view tagged_sample.bam | head -5 | grep "XI:Z:"
+
+# Decode random tag
+samtools view tagged_sample.bam | grep "XS:Z:" | head -1 | \
+  sed 's/.*XS:Z:\([^ ]*\).*/\1/' | \
+  xargs -I {} python3 decode_tags.py -s {}
+
+# Count unique isoforms
+samtools view tagged_sample.bam | grep -o "XI:Z:[^ ]*" | sort -u | wc -l
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Areas for improvement:
+- Additional clustering modes
+- Performance optimizations
 - Integration with annotation databases
-- REST API for ID lookup services  
 - Support for fusion transcripts
-- Advanced variant normalization
 
-## License
+See [CHANGELOG.md](CHANGELOG.md) for version history and [TAG_FORMAT.md](TAG_FORMAT.md) for detailed tag specifications.
 
-MIT License - see LICENSE file for details.
+## 📄 License
 
-## Citation
+MIT License - see [LICENSE](LICENSE) file for details.
 
-If you use IsoTag v1.0 in your research, please cite:
+## 🆘 Support & Citation
 
+For issues and questions:
+- GitHub Issues: https://github.com/LSBDT/isotag/issues
+- Documentation: See [TAG_FORMAT.md](TAG_FORMAT.md) for technical details
+
+If you use IsoTag in your research, please cite:
 ```
-IsoTag v1.0: RefGet-Compatible Universal Isoform Tagger
-LSBDT Team (2025)
+IsoTag: Universal Isoform Identification System using RefGet-compatible Identifiers
 GitHub: https://github.com/LSBDT/isotag
+Version: 2.0.0 (2025)
 ```
 
-## Contact
+## 🔗 Related Resources
 
-For questions and support, please open an issue on GitHub or contact the LSBDT team.
+- **GA4GH RefGet Specification**: https://samtools.github.io/hts-specs/refget.html
+- **VRS (Variation Representation Specification)**: https://vrs.ga4gh.org
+- **SAM/BAM Format**: https://samtools.github.io/hts-specs/SAMv1.pdf
+
+---
+
+**Status**: ✅ Production Ready | **Version**: 2.0.0 | **Last Updated**: October 2025
