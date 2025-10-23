@@ -71,6 +71,31 @@ class SimpleVariant:
         return self.position < other.position
 
 
+def mask_ambiguous_bases(sequence: str, keep_ambiguous: bool = False) -> str:
+    """
+    Mask ambiguous IUPAC codes with 'N' for consistent RefGet hashing
+
+    This ensures UCSC hg38 and NCBI GRCh38 produce identical chromosome hashes
+    despite differences in ambiguous base representation (R, Y, S, W, K, M, etc.)
+
+    Args:
+        sequence: DNA sequence string
+        keep_ambiguous: If True, keep R/Y/etc as-is (may cause cross-genome incompatibility)
+
+    Returns:
+        Normalized sequence for hashing
+    """
+    if keep_ambiguous:
+        return sequence.upper()
+
+    # Convert ambiguous IUPAC bases to N
+    canonical_bases = set('ACGTN')
+    normalized = ''.join(base if base in canonical_bases else 'N'
+                        for base in sequence.upper())
+
+    return normalized
+
+
 class RefGetCache:
     """Manages RefGet chromosome hash caching"""
 
@@ -89,7 +114,8 @@ class RefGetCache:
         return cache_dir / f"{genome_name}_refget.json"
 
     @staticmethod
-    def load_or_generate(genome_file: Optional[str], refget_file: Optional[str]) -> Dict[str, str]:
+    def load_or_generate(genome_file: Optional[str], refget_file: Optional[str],
+                        keep_ambiguous: bool = False) -> Dict[str, str]:
         """Load RefGet mapping from file or generate from genome FASTA"""
 
         # If user provided RefGet JSON, use it
@@ -117,21 +143,25 @@ class RefGetCache:
         click.echo(f"🧬 Generating RefGet mapping from genome: {genome_file}")
         click.echo(f"💾 This will be cached at: {cache_path}")
 
-        mapping = RefGetCache.generate_from_fasta(genome_file)
+        mapping = RefGetCache.generate_from_fasta(genome_file, keep_ambiguous)
 
         # Save to cache
-        RefGetCache.save_cache(mapping, cache_path, Path(genome_file).stem)
+        RefGetCache.save_cache(mapping, cache_path, Path(genome_file).stem, keep_ambiguous)
 
         return mapping
 
     @staticmethod
-    def generate_from_fasta(fasta_file: str) -> Dict[str, str]:
-        """Generate RefGet mapping from FASTA file"""
+    def generate_from_fasta(fasta_file: str, keep_ambiguous: bool = False) -> Dict[str, str]:
+        """Generate RefGet mapping from FASTA file with optional ambiguous base masking"""
         mapping = {}
         current_chrom = None
         current_seq = []
+        ambiguous_count_total = 0
 
-        click.echo("⏳ Processing chromosomes...")
+        if not keep_ambiguous:
+            click.echo("⏳ Processing chromosomes (masking ambiguous bases with 'N')...")
+        else:
+            click.echo("⏳ Processing chromosomes (keeping ambiguous IUPAC codes)...")
 
         with open(fasta_file, 'r') as f:
             for line in f:
@@ -141,7 +171,19 @@ class RefGetCache:
                     # Process previous chromosome
                     if current_chrom and current_seq:
                         seq = ''.join(current_seq)
-                        refget_id = sha512t24u(seq.upper().encode('ascii'))
+
+                        # Normalize sequence (mask ambiguous bases unless --keep-ambiguous-bases)
+                        normalized_seq = mask_ambiguous_bases(seq, keep_ambiguous)
+
+                        # Count ambiguous bases if masking
+                        if not keep_ambiguous:
+                            ambiguous_in_chrom = sum(1 for orig, norm in zip(seq.upper(), normalized_seq)
+                                                    if orig != norm)
+                            ambiguous_count_total += ambiguous_in_chrom
+                            if ambiguous_in_chrom > 0:
+                                click.echo(f"   ⚠️  {current_chrom}: {ambiguous_in_chrom} ambiguous bases masked")
+
+                        refget_id = sha512t24u(normalized_seq.encode('ascii'))
                         mapping[current_chrom] = f"SQ.{refget_id}"
                         click.echo(f"   ✅ {current_chrom} -> SQ.{refget_id[:8]}...")
 
@@ -156,9 +198,26 @@ class RefGetCache:
             # Process last chromosome
             if current_chrom and current_seq:
                 seq = ''.join(current_seq)
-                refget_id = sha512t24u(seq.upper().encode('ascii'))
+
+                # Normalize sequence
+                normalized_seq = mask_ambiguous_bases(seq, keep_ambiguous)
+
+                # Count ambiguous bases if masking
+                if not keep_ambiguous:
+                    ambiguous_in_chrom = sum(1 for orig, norm in zip(seq.upper(), normalized_seq)
+                                            if orig != norm)
+                    ambiguous_count_total += ambiguous_in_chrom
+                    if ambiguous_in_chrom > 0:
+                        click.echo(f"   ⚠️  {current_chrom}: {ambiguous_in_chrom} ambiguous bases masked")
+
+                refget_id = sha512t24u(normalized_seq.encode('ascii'))
                 mapping[current_chrom] = f"SQ.{refget_id}"
                 click.echo(f"   ✅ {current_chrom} -> SQ.{refget_id[:8]}...")
+
+        # Summary
+        if not keep_ambiguous and ambiguous_count_total > 0:
+            click.echo(f"   📊 Total ambiguous bases masked: {ambiguous_count_total:,}")
+            click.echo(f"   ℹ️  This ensures UCSC hg38 and NCBI GRCh38 produce identical hashes")
 
         # Generate chromosome name variants
         extended = RefGetCache.generate_variants(mapping)
@@ -191,7 +250,8 @@ class RefGetCache:
         return extended
 
     @staticmethod
-    def save_cache(mapping: Dict[str, str], cache_path: Path, genome_name: str):
+    def save_cache(mapping: Dict[str, str], cache_path: Path, genome_name: str,
+                  keep_ambiguous: bool = False):
         """Save RefGet mapping to cache file"""
         from datetime import datetime
 
@@ -200,6 +260,7 @@ class RefGetCache:
                 "genome": genome_name,
                 "generated": datetime.now().isoformat(),
                 "total_mappings": len(mapping),
+                "ambiguous_bases_masked": not keep_ambiguous,
                 "description": "IsoTag RefGet chromosome hash cache"
             },
             "refget_mapping": mapping
@@ -774,6 +835,8 @@ class IsoformTagger:
 @click.option('--output', '-o', required=True, help='Output BAM/SAM file with XI/XB/XS/XT/XV tags')
 @click.option('--genome', '-g', help='Reference genome FASTA (for RefGet cache generation and/or variant detection)')
 @click.option('--refget', '-r', help='RefGet JSON mapping file (optional, will auto-generate from genome if not provided)')
+@click.option('--keep-ambiguous-bases', is_flag=True,
+              help='Keep ambiguous IUPAC bases (R,Y,S,W,K,M,etc) in RefGet hashing (may cause incompatibility across genome versions)')
 @click.option('--clustermode', type=click.Choice(['5prime', 'middle', '3prime']), default='middle',
               help='Position for XT clustering: 5prime=CAGE/TSS, middle=RNA-seq, 3prime=polyA/TES (default: middle)')
 @click.option('--position-quantum', type=int, default=10000,
@@ -782,7 +845,7 @@ class IsoformTagger:
               help='Bin size for genomic span quantization in bp (default: 1000)')
 @click.option('--exon-quantum', type=int, default=1000,
               help='Bin size for exon length quantization in bp (default: 1000)')
-def isotag(input_file, output, genome, refget, clustermode, position_quantum, span_quantum, exon_quantum):
+def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode, position_quantum, span_quantum, exon_quantum):
     """
     IsoTag - Universal Isoform Tagger
 
@@ -840,7 +903,7 @@ def isotag(input_file, output, genome, refget, clustermode, position_quantum, sp
     click.echo(f"📏 Quantization: position={position_quantum}bp, span={span_quantum}bp, exon={exon_quantum}bp")
 
     # Load or generate RefGet mapping
-    refget_mapping = RefGetCache.load_or_generate(genome, refget)
+    refget_mapping = RefGetCache.load_or_generate(genome, refget, keep_ambiguous_bases)
 
     if refget_mapping:
         click.echo(f"✅ RefGet mapping loaded: {len(refget_mapping)} chromosome mappings")

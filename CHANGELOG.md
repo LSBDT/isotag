@@ -5,6 +5,61 @@ All notable changes to IsoTag will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-10-23
+
+### 🔧 Minor Release: Unified Genome Build Support
+
+This release adds ambiguous base masking to ensure that UCSC hg38 and NCBI GRCh38 (and other genome build variants) produce identical RefGet chromosome hashes, improving cross-database compatibility.
+
+### Added
+
+#### Ambiguous Base Masking
+- **Automatic masking**: Ambiguous IUPAC nucleotide codes (R, Y, S, W, K, M, etc.) are converted to 'N' before RefGet hashing
+- **Cross-build compatibility**: UCSC hg38 and NCBI GRCh38 now produce identical chromosome hashes
+- **Informative output**: Reports count of ambiguous bases masked per chromosome
+- **New CLI option**: `--keep-ambiguous-bases` flag to preserve old behavior if needed (not recommended)
+- **Cache metadata**: RefGet cache now includes `ambiguous_bases_masked` flag
+
+#### Benefits
+- Universal isotags work across genome build variants (hg38, GRCh38, etc.)
+- Eliminates hash mismatches caused by different ambiguous base representations
+- Maintains backward compatibility (existing caches will be regenerated with new behavior)
+
+### Changed
+
+#### RefGet Cache Generation
+- Sequences are normalized (ambiguous bases → 'N') before hashing by default
+- Enhanced progress output shows ambiguous base masking statistics
+- Cache files include metadata about masking status
+
+### Technical Details
+
+```bash
+# Example: UCSC hg38 chr1 has ambiguous bases (R, Y, etc.)
+# NCBI GRCh38 chr1 may have different ambiguous base representation
+
+# v2.0.0: Different hashes for UCSC vs NCBI
+UCSC hg38  chr1 → SQ.aKF498dA... (includes R, Y, etc.)
+NCBI GRCh38 chr1 → SQ.bXG723fB... (different ambiguous bases)
+
+# v2.1.0: Identical hashes (ambiguous bases → N)
+UCSC hg38  chr1 → SQ.aKF498dA... (R,Y,etc → N)
+NCBI GRCh38 chr1 → SQ.aKF498dA... (R,Y,etc → N)  ✅ SAME!
+```
+
+### Migration
+
+No action required! The change is backward compatible:
+- Existing RefGet caches will be regenerated automatically on next use
+- Isotags will remain consistent within your analysis
+- For cross-database comparisons, regenerate RefGet cache with v2.1.0
+
+### Performance
+
+No performance impact - masking is done during cache generation only (one-time operation).
+
+---
+
 ## [2.0.0] - 2025-10-02
 
 ### 🚀 Major Release: Reversible Tags & Universal Chromosome Hashing

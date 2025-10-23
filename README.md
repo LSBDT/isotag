@@ -1,10 +1,18 @@
-# IsoTag v2.0 - Universal Isoform Identification System 🚀
+# IsoTag v2.1 - Universal Isoform Identification System 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![GA4GH](https://img.shields.io/badge/GA4GH-RefGet%20Compatible-green.svg)](https://samtools.github.io/hts-specs/refget.html)
 
-A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.0** introduces reversible splicetags, boundary tags, and universal chromosome hashing for true cross-database compatibility.
+A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.1** adds unified genome build support, ensuring UCSC hg38 and NCBI GRCh38 produce identical RefGet hashes.
+
+## 🎯 What's New in v2.1
+
+### **Unified Genome Build Support** 🔧 NEW!
+- **Ambiguous base masking**: Automatically converts ambiguous IUPAC codes (R, Y, S, W, K, M, etc.) to 'N'
+- **Cross-build compatibility**: UCSC hg38 and NCBI GRCh38 now produce identical chromosome hashes
+- **Informative output**: Reports ambiguous bases masked per chromosome during RefGet cache generation
+- **Optional override**: `--keep-ambiguous-bases` flag available if needed (not recommended)
 
 ## 🎯 What's New in v2.0
 
