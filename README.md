@@ -1,10 +1,26 @@
-# IsoTag v2.1 - Universal Isoform Identification System 🚀
+# IsoTag v2.2 - Universal Isoform Identification System 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![GA4GH](https://img.shields.io/badge/GA4GH-RefGet%20Compatible-green.svg)](https://samtools.github.io/hts-specs/refget.html)
 
-A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.1** adds unified genome build support, ensuring UCSC hg38 and NCBI GRCh38 produce identical RefGet hashes.
+A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.2** adds the XC gene/locus tag for annotation-free gene-level clustering.
+
+## 🎯 What's New in v2.2
+
+### **Gene/Locus Tag (XC Tag)** 🧬 NEW!
+- **Pure location-based clustering**: Groups all transcripts at the same genomic locus into one XC ID
+- **No annotation required**: Automatically assigns gene-level IDs to novel and known transcripts alike
+- **Configurable resolution**: `--xc-bin-size` parameter (default: 10kb for gene-level, 10bp for splice wobble)
+- **Same gene, different isoforms → Same XC**: Unlike XI/XT, XC ignores exon structure entirely
+- **32-char hash**: Same format as XI/XT for consistency
+
+```bash
+# XC groups all isoforms at the same locus
+Isoform A (5 exons): XI=aaa... XT=bbb... XC=zzz...  ← Same XC
+Isoform B (3 exons): XI=ccc... XT=ddd... XC=zzz...  ← Same XC
+Isoform C (4 exons): XI=eee... XT=fff... XC=zzz...  ← Same XC
+```
 
 ## 🎯 What's New in v2.1
 
@@ -36,13 +52,14 @@ A production-ready system for generating standardized, RefGet-compatible isoform
 - **Auto-caching**: Generates RefGet cache from genome FASTA automatically
 - **Cross-database**: Same chromosome sequence = same hash regardless of naming
 
-## 📋 Tag Format (v2.0)
+## 📋 Tag Format (v2.2)
 
 ```bash
 XI:Z:fuIF7PN23g2gq9sFxqhUNGnfOCZhkQJS              # Structure ID (32-char)
 XB:Z:aKF498dAp.3e8.1004                           # Boundary tag (8-char chr + hex ends)
 XS:Z:aKF498dAp.4b0.7d0.866.bb8                    # Splicetag (8-char chr + hex coords)
 XT:Z:266CbPqmZz8eS-EzT4xtnYtmm-SoIhnL              # Transcript group (32-char)
+XC:Z:a7Bf9xK2mP3qR5tN8wY1zC4dF6hJ0lO              # Gene/locus cluster (32-char)
 XV:Z:Q4fUfjJXgQwpSxFgeGVowhJaLTVg3Fqk              # Variants (32-char, optional)
 ```
 
@@ -54,6 +71,7 @@ XV:Z:Q4fUfjJXgQwpSxFgeGVowhJaLTVg3Fqk              # Variants (32-char, optional
 | **XB** | Boundary Tag | `[8-chr][s].[hex1].[hex2]` | Reversible 5'/3' transcript ends |
 | **XS** | Splicetag | `[8-chr][s].[hex1].[hex2]...` | Reversible splice junction coordinates |
 | **XT** | Transcript Group | 32-char hash | Biological clustering with fuzzy boundaries |
+| **XC** | Gene/Locus ID | 32-char hash | Pure location-based gene/locus cluster |
 | **XV** | Variants | 32-char hashes | Individual variant IDs (optional) |
 
 **Legend**: `[8-chr]` = 8-char RefGet chromosome hash, `[s]` = strand (p/m), `[hex]` = hexadecimal coordinates
@@ -90,6 +108,9 @@ python3 isotag.py -i cage.bam -o tagged.bam -g reference.fa --clustermode 5prime
 
 # PolyA data (3' TES clustering)
 python3 isotag.py -i polya.bam -o tagged.bam -g reference.fa --clustermode 3prime
+
+# Fine-grained gene/locus clustering (100bp XC bins)
+python3 isotag.py -i input.bam -o tagged.bam -g reference.fa --xc-bin-size 100
 ```
 
 ### Decode Tags
@@ -177,7 +198,7 @@ python3 decode_tags.py -b "aKF498dAp.3e8.1004" -s "aKF498dAp.4b0.7d0"
 
 ### RefGet Chromosome Hashing
 
-IsoTag v2.0 solves chromosome naming inconsistencies (chr1 vs Chr1 vs CHR1 vs 1) by hashing **chromosome sequences** instead of names:
+IsoTag solves chromosome naming inconsistencies (chr1 vs Chr1 vs CHR1 vs 1) by hashing **chromosome sequences** instead of names:
 
 ```python
 # Step 1: Extract chromosome sequence
@@ -189,7 +210,7 @@ refget_id = sha512t24u(chr_sequence.encode('ascii'))
 
 # Step 3: Use appropriate hash length
 chr_hash_8 = refget_id[:8]   # "aKF498dA" - for XB/XS tags
-chr_hash_32 = refget_id       # Full 32 chars - for XI/XT/XV tags
+chr_hash_32 = refget_id       # Full 32 chars - for XI/XT/XC/XV tags
 ```
 
 **Result**: chr1, Chr1, CHR1, and 1 all map to same hash if they have identical sequences!
@@ -335,7 +356,7 @@ If you use IsoTag in your research, please cite:
 ```
 IsoTag: Universal Isoform Identification System using RefGet-compatible Identifiers
 GitHub: https://github.com/LSBDT/isotag
-Version: 2.0.0 (2025)
+Version: 2.2.0 (2026)
 ```
 
 ## 🔗 Related Resources
@@ -346,4 +367,4 @@ Version: 2.0.0 (2025)
 
 ---
 
-**Status**: ✅ Production Ready | **Version**: 2.0.0 | **Last Updated**: October 2025
+**Status**: ✅ Production Ready | **Version**: 2.2.0 | **Last Updated**: February 2026

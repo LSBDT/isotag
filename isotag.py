@@ -3,14 +3,15 @@
 IsoTag - Universal Isoform Tagger for BAM/SAM Files
 
 Adds compact isoform structure (XI), reversible splicetag (XS), transcript group (XT),
-and variant (XV) tags to BAM/SAM files. Uses RefGet-based chromosome hashing for
-universal compatibility across chr1/Chr1/CHR1/1 naming conventions.
+gene/locus cluster (XC), and variant (XV) tags to BAM/SAM files. Uses RefGet-based
+chromosome hashing for universal compatibility across chr1/Chr1/CHR1/1 naming conventions.
 
 Tags added:
     XI:Z: Isoform structure ID (32-char hash, full exon coordinates)
     XB:Z: Reversible boundary tag (8-char chr hash + hex 5'/3' ends)
     XS:Z: Reversible splicetag (8-char chr hash + hex coordinates)
     XT:Z: Transcript group ID (32-char hash, position-based clustering)
+    XC:Z: Gene/locus cluster ID (32-char hash, pure location-based)
     XV:Z: Variant ID (32-char hashes, if variant detection enabled)
 
 Usage:
@@ -281,6 +282,7 @@ class IsoformTagger:
     - XB tag: Reversible boundary tag (8-char chr hash + hex 5'/3' ends)
     - XS tag: Reversible splicetag (8-char chr hash + hex coordinates)
     - XT tag: 32-char transcript group hash (mode-based clustering)
+    - XC tag: 32-char gene/locus cluster hash (pure location-based)
     - XV tag: 32-char variant hashes (full RefGet hash + variant info)
     """
 
@@ -289,7 +291,8 @@ class IsoformTagger:
                  clustermode: str = "middle",
                  position_quantum: int = 10000,
                  span_quantum: int = 1000,
-                 exon_quantum: int = 1000):
+                 exon_quantum: int = 1000,
+                 xc_bin_size: int = 10000):
         """
         Initialize IsoformTagger
 
@@ -299,12 +302,14 @@ class IsoformTagger:
             position_quantum: Bin size for position quantization (bp)
             span_quantum: Bin size for genomic span quantization (bp)
             exon_quantum: Bin size for exon length quantization (bp)
+            xc_bin_size: Bin size for XC cluster tag (bp, default: 10000)
         """
         self.refget_mapping = refget_mapping or {}
         self.clustermode = clustermode
         self.position_quantum = position_quantum
         self.span_quantum = span_quantum
         self.exon_quantum = exon_quantum
+        self.xc_bin_size = xc_bin_size
 
     def get_chromosome_hash(self, chrom_name: str, hash_length: int = 32) -> str:
         """
@@ -565,6 +570,62 @@ class IsoformTagger:
         xt_serial = self.serialize_transcript_group_xt(chromosome, strand, exons)
         return self.generate_hash(xt_serial)
 
+    def serialize_cluster_xc(self, chromosome: str, strand: str, exons: List[ExonBoundary]) -> str:
+        """
+        Serialize transcript for XC cluster tag - PURE LOCATION-BASED clustering.
+
+        XC is a gene-level/locus-level tag that groups ALL transcripts at the same
+        genomic location, regardless of isoform structure. Suitable for use as a
+        gene ID or locus ID.
+
+        Format: chr_hash_32|strand|start_bin|end_bin
+
+        Args:
+            chromosome: Chromosome name
+            strand: Strand (+ or -)
+            exons: List of exon boundaries
+
+        Returns:
+            Serialized string for XC hashing (location only, NO structure info)
+        """
+        chr_hash = self.get_chromosome_hash(chromosome, hash_length=32)
+        sorted_exons = sorted(exons)
+
+        # Bin start and end positions
+        start_bin = sorted_exons[0].start // self.xc_bin_size
+        end_bin = sorted_exons[-1].end // self.xc_bin_size
+
+        # Build serialization - LOCATION ONLY (no exon structure)!
+        parts = [
+            chr_hash,
+            strand,
+            str(start_bin),
+            str(end_bin)
+        ]
+
+        return '|'.join(parts)
+
+    def generate_cluster_xc_id(self, chromosome: str, strand: str, exons: List[ExonBoundary]) -> str:
+        """
+        Generate XC cluster tag ID - PURE LOCATION-BASED gene/locus clustering.
+
+        XC captures ONLY:
+        - Chromosome (via RefGet hash)
+        - Strand
+        - Approximate start/end positions (binned by --xc-bin-size)
+
+        XC ignores:
+        - Exon structure (count, lengths, coordinates)
+        - Splice junction positions
+        - All isoform-specific features
+
+        This creates a gene-level/locus-level ID that groups ALL transcripts
+        from the same genomic location, regardless of alternative splicing.
+        Suitable for use as a gene ID.
+        """
+        xc_serial = self.serialize_cluster_xc(chromosome, strand, exons)
+        return self.generate_hash(xc_serial)
+
     def generate_individual_variant_ids(self, chromosome: str, variants: List[SimpleVariant]) -> Optional[str]:
         """
         Generate individual IDs for each variant with 32-char chromosome hash
@@ -755,6 +816,9 @@ class IsoformTagger:
         # Generate XT tag ID (mode-based clustering) - 32-char hash
         xt_group_id = self.generate_transcript_group_xt_id(rname, strand, exons)
 
+        # Generate XC tag ID (location-based cluster, no splice precision) - 32-char hash
+        xc_cluster_id = self.generate_cluster_xc_id(rname, strand, exons)
+
         # Extract variants if enabled
         variant_id = None
         if detect_variants:
@@ -788,6 +852,7 @@ class IsoformTagger:
             'boundarytag_id': boundarytag_id,
             'splicetag_id': splicetag_id,
             'xt_group_id': xt_group_id,
+            'xc_cluster_id': xc_cluster_id,
             'variant_id': variant_id,
             'original_line': line.strip()
         }
@@ -832,7 +897,7 @@ class IsoformTagger:
 
 @click.command()
 @click.option('--input', '-i', 'input_file', required=True, help='Input BAM/SAM file')
-@click.option('--output', '-o', required=True, help='Output BAM/SAM file with XI/XB/XS/XT/XV tags')
+@click.option('--output', '-o', required=True, help='Output BAM/SAM file with XI/XB/XS/XT/XC/XV tags')
 @click.option('--genome', '-g', help='Reference genome FASTA (for RefGet cache generation and/or variant detection)')
 @click.option('--refget', '-r', help='RefGet JSON mapping file (optional, will auto-generate from genome if not provided)')
 @click.option('--keep-ambiguous-bases', is_flag=True,
@@ -845,7 +910,9 @@ class IsoformTagger:
               help='Bin size for genomic span quantization in bp (default: 1000)')
 @click.option('--exon-quantum', type=int, default=1000,
               help='Bin size for exon length quantization in bp (default: 1000)')
-def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode, position_quantum, span_quantum, exon_quantum):
+@click.option('--xc-bin-size', type=int, default=10000,
+              help='Bin size for XC gene/locus clustering in bp (default: 10000). Smaller = finer clustering')
+def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode, position_quantum, span_quantum, exon_quantum, xc_bin_size):
     """
     IsoTag - Universal Isoform Tagger
 
@@ -854,6 +921,7 @@ def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode
     - XB: Reversible boundary tag (8-char chr hash + hex 5'/3' ends)
     - XS: Reversible splicetag (8-char chr hash + hex coordinates)
     - XT: Transcript group (32-char hash, mode-based clustering)
+    - XC: Gene/locus cluster (32-char hash, pure location-based)
     - XV: Variant IDs (32-char hashes with full RefGet chr hash)
 
     RefGet Behavior:
@@ -896,11 +964,12 @@ def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode
     input_is_bam = input_path.suffix.lower() == '.bam'
     output_is_bam = output_path.suffix.lower() == '.bam'
 
-    click.echo(f"🧬 IsoTag v8.2 - Reversible Boundary Tags Edition")
+    click.echo(f"🧬 IsoTag v2.2.0 - Gene/Locus Tag Edition")
     click.echo(f"📥 Input: {input_path.name} ({'BAM' if input_is_bam else 'SAM'})")
     click.echo(f"📤 Output: {output_path.name} ({'BAM' if output_is_bam else 'SAM'})")
     click.echo(f"🎯 Cluster mode: {clustermode}")
     click.echo(f"📏 Quantization: position={position_quantum}bp, span={span_quantum}bp, exon={exon_quantum}bp")
+    click.echo(f"🧬 XC bin size: {xc_bin_size}bp (gene/locus clustering)")
 
     # Load or generate RefGet mapping
     refget_mapping = RefGetCache.load_or_generate(genome, refget, keep_ambiguous_bases)
@@ -916,7 +985,8 @@ def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode
         clustermode=clustermode,
         position_quantum=position_quantum,
         span_quantum=span_quantum,
-        exon_quantum=exon_quantum
+        exon_quantum=exon_quantum,
+        xc_bin_size=xc_bin_size
     )
 
     # Statistics
@@ -927,11 +997,13 @@ def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode
         'reads_with_boundarytags': 0,
         'reads_with_splicetags': 0,
         'reads_with_xt_groups': 0,
+        'reads_with_xc_clusters': 0,
         'reads_with_variants': 0,
         'unique_structures': set(),
         'unique_boundarytags': set(),
         'unique_splicetags': set(),
         'unique_xt_groups': set(),
+        'unique_xc_clusters': set(),
         'unique_variants': set()
     }
 
@@ -964,7 +1036,7 @@ def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode
                 detect_variants = False
                 click.echo("🔬 Variant detection: Disabled")
 
-        click.echo("🏷️  Adding isoform tags (XI, XB, XS, XT)...")
+        click.echo("🏷️  Adding isoform tags (XI, XB, XS, XT, XC)...")
         if detect_variants:
             click.echo("🏷️  Adding variant tags (XV)...")
 
@@ -1017,6 +1089,11 @@ def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode
                         stats['reads_with_xt_groups'] += 1
                         stats['unique_xt_groups'].add(result['xt_group_id'])
 
+                        # Add XC tag (gene/locus cluster, 32-char hash)
+                        fields.append(f"XC:Z:{result['xc_cluster_id']}")
+                        stats['reads_with_xc_clusters'] += 1
+                        stats['unique_xc_clusters'].add(result['xc_cluster_id'])
+
                         # Add XV tag (variants, 32-char hashes)
                         if detect_variants and result['variant_id']:
                             fields.append(f"XV:Z:{result['variant_id']}")
@@ -1051,11 +1128,13 @@ def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode
         click.echo(f"🔚 XB tags (boundaries): {stats['reads_with_boundarytags']:,}")
         click.echo(f"🔗 XS tags (splicetag): {stats['reads_with_splicetags']:,}")
         click.echo(f"🎯 XT tags (transcript group): {stats['reads_with_xt_groups']:,}")
+        click.echo(f"🧬 XC tags (gene/locus): {stats['reads_with_xc_clusters']:,}")
         click.echo(f"🔬 XV tags (variants): {stats['reads_with_variants']:,}")
         click.echo(f"🆔 Unique structures: {len(stats['unique_structures']):,}")
         click.echo(f"🔚 Unique boundarytags: {len(stats['unique_boundarytags']):,}")
         click.echo(f"🧬 Unique splicetags: {len(stats['unique_splicetags']):,}")
         click.echo(f"🎯 Unique XT groups: {len(stats['unique_xt_groups']):,}")
+        click.echo(f"🧬 Unique XC clusters: {len(stats['unique_xc_clusters']):,}")
         click.echo(f"🧪 Unique variant combos: {len(stats['unique_variants']):,}")
         click.echo(f"💾 Output: {output_path}")
 
@@ -1073,6 +1152,9 @@ def isotag(input_file, output, genome, refget, keep_ambiguous_bases, clustermode
         if stats['unique_xt_groups']:
             example = next(iter(stats['unique_xt_groups']))
             click.echo(f"   XT:Z:{example} (32-char {clustermode} group)")
+        if stats['unique_xc_clusters']:
+            example = next(iter(stats['unique_xc_clusters']))
+            click.echo(f"   XC:Z:{example} (32-char gene/locus cluster)")
         if stats['unique_variants']:
             example = next(iter(stats['unique_variants']))
             click.echo(f"   XV:Z:{example[:50]}... (variant IDs)")

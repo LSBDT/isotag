@@ -1,4 +1,4 @@
-# IsoTag Tag Format Specification v2.0
+# IsoTag Tag Format Specification v2.2
 
 This document provides the complete technical specification for all IsoTag BAM/SAM tags.
 
@@ -9,6 +9,7 @@ This document provides the complete technical specification for all IsoTag BAM/S
 - [XB Tag - Boundary Tag](#xb-tag---boundary-tag)
 - [XS Tag - Splicetag](#xs-tag---splicetag)
 - [XT Tag - Transcript Group](#xt-tag---transcript-group)
+- [XC Tag - Gene/Locus ID](#xc-tag---genelocus-id)
 - [XV Tag - Variants](#xv-tag---variants)
 - [RefGet Chromosome Hashing](#refget-chromosome-hashing)
 - [Encoding Algorithms](#encoding-algorithms)
@@ -18,12 +19,13 @@ This document provides the complete technical specification for all IsoTag BAM/S
 
 ## Overview
 
-IsoTag v2.0 uses **five custom BAM tags** to encode transcript isoform structure, splice junctions, biological clustering, and variants:
+IsoTag v2.2 uses **six custom BAM tags** to encode transcript isoform structure, splice junctions, biological clustering, gene/locus identity, and variants:
 
 - **XI**: Unique isoform structure identifier (32-char hash)
 - **XB**: Reversible boundary tag (8-char chr hash + hex-encoded ends)
 - **XS**: Reversible splicetag (8-char chr hash + hex-encoded splice junctions)
 - **XT**: Biological transcript group (32-char hash with mode-based clustering)
+- **XC**: Gene/locus cluster identifier (32-char hash, pure location-based)
 - **XV**: Individual variant identifiers (32-char hashes, optional)
 
 ### Design Principles
@@ -44,6 +46,7 @@ IsoTag v2.0 uses **five custom BAM tags** to encode transcript isoform structure
 | **XB** | Z (string) | Variable | **Yes** | 5'/3' transcript boundary coordinates |
 | **XS** | Z (string) | Variable | **Yes** | Internal splice junction coordinates |
 | **XT** | Z (string) | 32 chars | No | Transcript group (fuzzy clustering) |
+| **XC** | Z (string) | 32 chars | No | Gene/locus cluster (pure location) |
 | **XV** | Z (string) | Variable | No | Individual variant IDs |
 
 ### Tag Presence Rules
@@ -52,6 +55,7 @@ IsoTag v2.0 uses **five custom BAM tags** to encode transcript isoform structure
 - **XB**: Always present (required for all reads with CIGAR)
 - **XS**: Present only for multi-exon transcripts (2+ exons)
 - **XT**: Always present (required for all reads with CIGAR)
+- **XC**: Always present (required for all reads with CIGAR)
 - **XV**: Present only when variants detected AND variant detection enabled
 
 ---
@@ -391,6 +395,87 @@ def generate_xt_group_id(chr_refget_32: str, strand: str, exons: List[Tuple[int,
 
 ---
 
+## XC Tag - Gene/Locus ID
+
+### Purpose
+Pure location-based gene/locus identifier that groups ALL transcripts at the same genomic location, regardless of isoform structure. Suitable for use as a gene ID or locus ID without requiring annotation databases.
+
+### Format
+```
+XC:Z:[32-character-hash]
+```
+
+### Serialization (before hashing)
+```
+[32-chr-refget-hash]|[strand]|[start_bin]|[end_bin]
+```
+
+Where:
+- **start_bin** = `transcript_start // xc_bin_size`
+- **end_bin** = `transcript_end // xc_bin_size`
+- **xc_bin_size** = configurable (default: 10000bp)
+
+### Example
+```bash
+# Input
+Chromosome: chr1 (RefGet: aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2)
+Strand: +
+Exons: 1000000-1001200, 1005000-1005150, 1010000-1020000
+# start_bin = 1000000 // 10000 = 100
+# end_bin = 1020000 // 10000 = 102
+
+# Serialization
+"aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2|+|100|102"
+
+# Final XC tag
+XC:Z:a7Bf9xK2mP3qR5tN8wY1zC4dF6hJ0lO
+```
+
+### XC vs XT Comparison
+
+| Feature | XT (Transcript Group) | XC (Gene/Locus) |
+|---------|----------------------|-----------------|
+| Position | Binned (mode-based) | Binned (start/end) |
+| Strand | ✓ | ✓ |
+| Exon count/lengths | Quantized | **Ignored** |
+| Splice junctions | ✓ | **Ignored** |
+| Genomic span | Quantized | **Ignored** |
+| Same gene, different isoforms | May differ | **Always same** ✅ |
+| Clustering level | Isoform group | Gene/locus |
+| Use case | Isoform clustering | Gene-level ID |
+
+### Bin Size Parameter
+
+| Bin Size | Clustering Level | Use Case |
+|----------|-----------------|----------|
+| **10bp** | Very fine | Splice wobble detection |
+| **100bp** | Fine | Isoform discovery with tolerance |
+| **1kb** | Moderate | Locus-level grouping |
+| **10kb** (default) | Gene-level | Gene-level analysis ⭐ |
+| **100kb** | Very coarse | May merge nearby genes |
+
+### Encoding Algorithm
+```python
+def generate_xc_cluster_id(chr_refget_32: str, strand: str,
+                           exons: List[Tuple[int, int]],
+                           xc_bin_size: int = 10000) -> str:
+    """Generate XC tag gene/locus cluster ID"""
+    sorted_exons = sorted(exons)
+    start_bin = sorted_exons[0][0] // xc_bin_size
+    end_bin = sorted_exons[-1][1] // xc_bin_size
+
+    serialization = f"{chr_refget_32}|{strand}|{start_bin}|{end_bin}"
+    return sha512t24u(serialization.encode('utf-8'))
+```
+
+### Properties
+- **Length**: Always 32 characters
+- **Character set**: Base64URL (A-Z, a-z, 0-9, -, _)
+- **Reversibility**: No (one-way hash)
+- **Key property**: All isoforms at the same genomic locus produce the same XC tag
+
+---
+
 ## XV Tag - Variants
 
 ### Purpose
@@ -461,7 +546,7 @@ def calculate_refget_id(chromosome_sequence: str) -> str:
 | Tag Type | Hash Length | Purpose |
 |----------|-------------|---------|
 | **XB, XS** | 8 chars | Compact reversible encoding |
-| **XI, XT, XV** | 32 chars | Full chromosome hash in serialization |
+| **XI, XT, XC, XV** | 32 chars | Full chromosome hash in serialization |
 
 ### RefGet Cache Format
 ```json
@@ -650,6 +735,7 @@ Full implementation available in:
 
 ## Version History
 
+- **v2.2.0** (2026-02-09): Added XC gene/locus tag (pure location-based clustering)
 - **v2.0.0** (2025-10-02): Added XB/XS reversible tags, universal chromosome hashing, biological clustering
 - **v1.0.0** (2025-08-20): Initial release with XI/XV tags
 
@@ -663,6 +749,6 @@ Full implementation available in:
 
 ---
 
-**IsoTag Tag Format Specification v2.0**
-**Last Updated**: October 2, 2025
+**IsoTag Tag Format Specification v2.2**
+**Last Updated**: February 9, 2026
 **Maintained by**: LSBDT Team

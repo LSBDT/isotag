@@ -5,6 +5,75 @@ All notable changes to IsoTag will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-02-09
+
+### 🧬 Minor Release: Gene/Locus Tag (XC)
+
+This release adds the **XC tag** - a pure location-based gene/locus identifier that groups all transcripts at the same genomic location regardless of isoform structure. Ideal for gene-level analysis without requiring annotation databases.
+
+### Added
+
+#### XC Tag - Gene/Locus Cluster ID
+- **New tag**: `XC:Z:` - 32-character hash identifying genomic locus
+- **Pure location-based**: Uses only chromosome, strand, and binned start/end positions
+- **Gene-level grouping**: All isoforms at the same locus get the same XC, regardless of alternative splicing
+- **No annotation required**: Automatically assigns gene-level IDs to novel and known transcripts
+- **Configurable resolution**: `--xc-bin-size` parameter (default: 10000bp = 10kb)
+
+#### XC vs Existing Tags
+
+| Feature | XI (Structure) | XT (Transcript Group) | **XC (Gene/Locus)** |
+|---------|---------------|----------------------|---------------------|
+| Exon coordinates | ✓ | Quantized | **✗** |
+| Splice junctions | ✓ | ✓ | **✗** |
+| Exon count/lengths | ✓ | Quantized | **✗** |
+| Position | Exact | Binned | **Binned** |
+| Strand | ✓ | ✓ | **✓** |
+| Same gene, different isoforms | Different | May differ | **Same** ✅ |
+| Use case | Exact isoform | Isoform clustering | **Gene-level ID** |
+
+#### CLI Options
+- **`--xc-bin-size`**: Bin size for XC clustering (default: 10000bp)
+  - 10kb (default): Gene-level analysis
+  - 100bp: Isoform discovery with tolerance
+  - 10bp: Splice wobble detection
+
+### Unchanged
+- All 5 existing tags (XI, XB, XS, XT, XV) are fully backward compatible
+- `decode_tags.py`, `isotag_refget.py`, `vrs_compat.py` unchanged (XC is a non-reversible hash)
+- RefGet cache format unchanged
+
+### Technical Details
+
+```bash
+# XC tag format
+XC:Z:a7Bf9xK2mP3qR5tN8wY1zC4dF6hJ0lO    # 32-char hash (gene/locus ID)
+
+# XC serialization (before hashing)
+# chr_hash_32|strand|start_bin|end_bin
+"aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2|+|100|102"
+
+# Same-location isoforms → Same XC
+Isoform A (5 exons, 1M-1.02M): XC = abc123...  ← SAME
+Isoform B (3 exons, 1M-1.02M): XC = abc123...  ← SAME
+Isoform C (4 exons, 1M-1.02M): XC = abc123...  ← SAME
+```
+
+### Usage
+
+```bash
+# Standard tagging (XC included by default)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa
+
+# Fine-grained XC clustering (100bp bins)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --xc-bin-size 100
+
+# Splice wobble detection (10bp bins)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --xc-bin-size 10
+```
+
+---
+
 ## [2.1.0] - 2025-10-23
 
 ### 🔧 Minor Release: Unified Genome Build Support
