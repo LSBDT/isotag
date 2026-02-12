@@ -5,6 +5,29 @@ All notable changes to IsoTag will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-02-12
+
+### 🔧 Patch Release: RefGet Ambiguous Base Masking Fix (Critical)
+
+### Fixed
+- **CRITICAL**: `isotag_refget.py` now masks ambiguous IUPAC bases (R, Y, S, W, K, M, B, D, H, V) to 'N' before hashing
+- **Impact**: UCSC (hg38) and NCBI (GRCh38) assemblies now produce identical RefGet IDs for shared chromosomes
+- All 10 pre-built RefGet JSONs regenerated with proper masking
+
+### Changed
+- `isotag_refget.py` updated to v2.0 with `mask_ambiguous_bases()` function
+- RefGet JSON metadata now includes `"ambiguous_bases_masked": true`
+- Added `--keep-ambiguous-bases` flag (not recommended, for backward compatibility only)
+
+### Validation
+- hg38 chr1 and GRCh38 chr1 produce identical hash: `SQ.2YnepKM7OkBoOrKmvHbGqguVfF9amCST`
+- GRCh38 chr1 had 2 ambiguous bases → masked to 'N' → hash now matches hg38
+
+### Action Required
+If you generated RefGet JSON files with v2.2.0, please regenerate with v2.2.1 for cross-genome compatibility.
+
+---
+
 ## [2.2.0] - 2026-02-09
 
 ### 🧬 Minor Release: Gene/Locus Tag (XC)

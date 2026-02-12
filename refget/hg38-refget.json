@@ -1,7 +1,8 @@
 {
   "metadata": {
+    "ambiguous_bases_masked": true,
     "description": "RefGet SQ.XXXX identifiers for chromosome sequences",
-    "generated": "2026-02-10T15:43:50.316585",
+    "generated": "2026-02-10T17:22:32.822351",
     "genome": "hg38",
     "total_mappings": 1820,
     "total_sequences": 455

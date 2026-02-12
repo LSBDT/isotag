@@ -1,7 +1,8 @@
 {
   "metadata": {
+    "ambiguous_bases_masked": true,
     "description": "RefGet SQ.XXXX identifiers for chromosome sequences",
-    "generated": "2026-02-10T15:43:51.245608",
+    "generated": "2026-02-10T17:31:08.795433",
     "genome": "T2T-CHM13v2",
     "total_mappings": 120,
     "total_sequences": 24

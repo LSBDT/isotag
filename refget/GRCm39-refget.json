@@ -1,7 +1,8 @@
 {
   "metadata": {
+    "ambiguous_bases_masked": true,
     "description": "RefGet SQ.XXXX identifiers for chromosome sequences",
-    "generated": "2026-02-10T15:43:31.738224",
+    "generated": "2026-02-10T17:30:18.367609",
     "genome": "GRCm39",
     "total_mappings": 149,
     "total_sequences": 61
