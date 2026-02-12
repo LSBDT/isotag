@@ -1,10 +1,18 @@
 {
   "metadata": {
     "ambiguous_bases_masked": true,
-    "description": "RefGet SQ.XXXX identifiers for chromosome sequences",
-    "generated": "2026-02-10T17:31:31.617809",
-    "genome": "hs1",
-    "total_mappings": 100,
+    "description": "Merged RefGet SQ.XXXX identifiers with UCSC and NCBI chromosome aliases",
+    "generated": "2026-02-12T13:01:27.093326",
+    "genome": "hs1/T2T-CHM13v2",
+    "source_files": [
+      "hs1-refget.json",
+      "T2T-CHM13v2-refget.json"
+    ],
+    "source_genomes": [
+      "hs1",
+      "T2T-CHM13v2"
+    ],
+    "total_mappings": 124,
     "total_sequences": 25
   },
   "refget_mapping": {
@@ -81,6 +89,30 @@
     "ChrX": "SQ.xrlHAe5hUN1d5EcfRYjPY0AMWFPxOomG",
     "ChrY": "SQ.RVZf-n0H5wmBYfl2y7iKJqWV5j9tki4p",
     "M": "SQ.XO4luj1ADMYYJhkJIpQpOvIf80wSsbEu",
+    "NC_060925.1": "SQ.S9dv70MOE6RecB0OYnc32EilaGTDWca-",
+    "NC_060926.1": "SQ.5vv2Xb_ZkaagKWYCz0EayrGncmRRAfTJ",
+    "NC_060927.1": "SQ.f1uycHw0NkDpPp4OQ5cbYbWlDU7ONBJs",
+    "NC_060928.1": "SQ.B5f4g5kiBInZy0qREU0PZr3ZVXd018y7",
+    "NC_060929.1": "SQ.Z1-DN-r0aDfOSnfhMw-xYMmk5R_SMGm1",
+    "NC_060930.1": "SQ.H5_IgBjHE38dUtPCY61ED3LFqUiRD8Qi",
+    "NC_060931.1": "SQ.kw_NNQ-we0XAHqnMpG1fx4lXZmXxdXDH",
+    "NC_060932.1": "SQ.nMrDOOwFLH-JRnTE-avAOFNhPpkmmc-Q",
+    "NC_060933.1": "SQ.LprKbuM4Y3H4uZsYOZLuRD6BDfs31VJ8",
+    "NC_060934.1": "SQ.hWguOYPWvLYNA7rsqGLFikI0G-bzkHce",
+    "NC_060935.1": "SQ.jsrczUzFGixtlsbFNWSg9eeop4fwHwyA",
+    "NC_060936.1": "SQ.Pu7CKolaqtbj0_3OMQCf_BKFEE7GMvtl",
+    "NC_060937.1": "SQ.ParpK2T2j01KRr9IgIklnzQ8DpTjlon-",
+    "NC_060938.1": "SQ.qrn4JzTUlPJmhoaCvHvMQdoxxfBBgs-B",
+    "NC_060939.1": "SQ.ZuvHSl4N_P7wI78ZVk4_Qc7pzXgqVaD6",
+    "NC_060940.1": "SQ.CEgkNynB_UVQ38m9vA88qn_xIiJQHqj3",
+    "NC_060941.1": "SQ.ibOlfL0yXZvyPHIjzS08D0kuqKIkIqSk",
+    "NC_060942.1": "SQ._aE9CdSQZZgotYGAT05qlxJoQywJbHlw",
+    "NC_060943.1": "SQ.6h6toZfxT1syeodZIIAkXsdegMLIOiXq",
+    "NC_060944.1": "SQ.J3YqxzhSQKEx8zAJ_VQLSNBh_EGcJn8O",
+    "NC_060945.1": "SQ.bboFugWC_sKlc7tZPEpUgoxWofFOcPUX",
+    "NC_060946.1": "SQ.HwkRopQHJAPg6_Lt8-9YrzXuzyUadW66",
+    "NC_060947.1": "SQ.xrlHAe5hUN1d5EcfRYjPY0AMWFPxOomG",
+    "NC_060948.1": "SQ.RVZf-n0H5wmBYfl2y7iKJqWV5j9tki4p",
     "X": "SQ.xrlHAe5hUN1d5EcfRYjPY0AMWFPxOomG",
     "Y": "SQ.RVZf-n0H5wmBYfl2y7iKJqWV5j9tki4p",
     "chr1": "SQ.S9dv70MOE6RecB0OYnc32EilaGTDWca-",
