@@ -1,10 +1,28 @@
-# IsoTag v2.2 - Universal Isoform Identification System 🚀
+# IsoTag v2.3 - Universal Isoform Identification System 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![GA4GH](https://img.shields.io/badge/GA4GH-RefGet%20Compatible-green.svg)](https://samtools.github.io/hts-specs/refget.html)
 
-A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.2** adds the XC gene/locus tag for annotation-free gene-level clustering.
+A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.3** merges UCSC+NCBI RefGet JSONs and fixes a chromosome alias bug.
+
+## 🎯 What's New in v2.3
+
+### **Merged RefGet JSONs** 🔀 NEW!
+- **Unified genome files**: UCSC and NCBI versions combined into single JSON (e.g., `mm39.GRCm39-refget.json`)
+- **All naming conventions**: Look up by `chr1`, `1`, `CHR1`, `Chr1`, or `NC_000067.7` — all in one file
+- **Bug fix**: Removed 280 bogus chromosome aliases incorrectly derived from NCBI accession numbers (e.g., `NC_000067.7` was generating `chr67` instead of being mouse chr1)
+- **Merge tool**: `python3 isotag_refget.py -m file1.json -m file2.json -o merged.json`
+
+#### Pre-built Merged RefGet JSONs (5 files)
+
+| File | Genomes | Sequences | Mappings |
+|------|---------|-----------|----------|
+| `hg38.GRCh38-refget.json` | Human (UCSC+NCBI) | 705 | 2,525 |
+| `hg19.GRCh37-refget.json` | Human (UCSC+NCBI) | 297 | 669 |
+| `hs1.T2T-CHM13v2-refget.json` | Human T2T (UCSC+NCBI) | 25 | 124 |
+| `mm39.GRCm39-refget.json` | Mouse (UCSC+NCBI) | 61 | 305 |
+| `mm10.GRCm38-refget.json` | Mouse (UCSC+NCBI) | 239 | 503 |
 
 ## 🎯 What's New in v2.2
 
@@ -98,10 +116,10 @@ pip install click
 python3 isotag.py -i input.bam -o tagged.bam -g reference.fa
 
 # Fast processing with pre-computed RefGet mapping (recommended)
-python3 isotag.py -i input.bam -o tagged.bam -r hg38-refget.json
+python3 isotag.py -i input.bam -o tagged.bam -r hg38.GRCh38-refget.json
 
 # Structure tags only (no variants)
-python3 isotag.py -i input.bam -o tagged.bam -r hg38-refget.json --no-variants
+python3 isotag.py -i input.bam -o tagged.bam -r hg38.GRCh38-refget.json --no-variants
 
 # CAGE data (5' TSS clustering)
 python3 isotag.py -i cage.bam -o tagged.bam -g reference.fa --clustermode 5prime
@@ -126,7 +144,7 @@ python3 decode_tags.py -s "aKF498dAp.4b0.7d0.866.bb8"
 python3 decode_tags.py -b "aKF498dAp.3e8.1004" -s "aKF498dAp.4b0.7d0.866.bb8" --reconstruct
 
 # With chromosome name lookup
-python3 decode_tags.py -b "aKF498dAp.3e8.1004" -r hg38-refget.json
+python3 decode_tags.py -b "aKF498dAp.3e8.1004" -r hg38.GRCh38-refget.json
 ```
 
 ## 📖 Detailed Examples
@@ -356,7 +374,7 @@ If you use IsoTag in your research, please cite:
 ```
 IsoTag: Universal Isoform Identification System using RefGet-compatible Identifiers
 GitHub: https://github.com/LSBDT/isotag
-Version: 2.2.0 (2026)
+Version: 2.3.0 (2026)
 ```
 
 ## 🔗 Related Resources
@@ -367,4 +385,4 @@ Version: 2.2.0 (2026)
 
 ---
 
-**Status**: ✅ Production Ready | **Version**: 2.2.0 | **Last Updated**: February 2026
+**Status**: ✅ Production Ready | **Version**: 2.3.0 | **Last Updated**: February 2026
