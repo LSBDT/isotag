@@ -5,26 +5,45 @@ All notable changes to IsoTag will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.1] - 2026-02-12
+## [2.3.0] - 2026-02-12
 
-### 🔧 Patch Release: RefGet Ambiguous Base Masking Fix (Critical)
+### 🔀 Minor Release: Merged RefGet JSONs + NC_ Alias Bug Fix
+
+This release merges UCSC and NCBI RefGet JSON files into unified files and fixes a bug where NCBI accession numbers were incorrectly converted to chromosome aliases.
+
+### Added
+
+#### Merged RefGet JSONs
+- **Unified genome files**: UCSC and NCBI versions combined into single JSON per genome
+- **5 merged files** replace previous 10 separate files:
+  - `hg38.GRCh38-refget.json` (2,525 mappings)
+  - `hg19.GRCh37-refget.json` (669 mappings)
+  - `hs1.T2T-CHM13v2-refget.json` (124 mappings)
+  - `mm39.GRCm39-refget.json` (305 mappings)
+  - `mm10.GRCm38-refget.json` (503 mappings)
+- **All naming conventions in one file**: `chr1`, `1`, `CHR1`, `Chr1`, `NC_000067.7`
+
+#### Merge Tool
+- **New `--merge` option** for `isotag_refget.py`: combine multiple RefGet JSONs
+- Usage: `python3 isotag_refget.py -m file1.json -m file2.json -o merged.json -g name`
+- Automatic cleanup of bogus aliases during merge
+- Conflict detection for mismatched RefGet IDs
 
 ### Fixed
-- **CRITICAL**: `isotag_refget.py` now masks ambiguous IUPAC bases (R, Y, S, W, K, M, B, D, H, V) to 'N' before hashing
-- **Impact**: UCSC (hg38) and NCBI (GRCh38) assemblies now produce identical RefGet IDs for shared chromosomes
-- All 10 pre-built RefGet JSONs regenerated with proper masking
 
-### Changed
-- `isotag_refget.py` updated to v2.0 with `mask_ambiguous_bases()` function
-- RefGet JSON metadata now includes `"ambiguous_bases_masked": true`
-- Added `--keep-ambiguous-bases` flag (not recommended, for backward compatibility only)
+#### NC_ Accession Alias Bug 🐛
+- **Bug**: NCBI RefSeq accession numbers (e.g., `NC_000067.7`) were incorrectly converted to chromosome aliases by extracting the numeric portion
+- **Impact**: Mouse chr1 (`NC_000067.7`) generated bogus aliases `67`, `chr67`, `Chr67`, `CHR67`
+- **Affected genomes**: GRCm39, GRCm38 (88 bogus each), GRCh38, GRCh37 (4 bogus each), T2T-CHM13v2 (96 bogus)
+- **Total**: 280 bogus aliases removed across all genomes
+- **Fix**: NC_ accessions are now kept as-is without generating chromosome number aliases
 
-### Validation
-- hg38 chr1 and GRCh38 chr1 produce identical hash: `SQ.2YnepKM7OkBoOrKmvHbGqguVfF9amCST`
-- GRCh38 chr1 had 2 ambiguous bases → masked to 'N' → hash now matches hg38
+### Migration
 
-### Action Required
-If you generated RefGet JSON files with v2.2.0, please regenerate with v2.2.1 for cross-genome compatibility.
+- Replace individual RefGet JSONs with merged versions:
+  - `hg38-refget.json` or `GRCh38-refget.json` → `hg38.GRCh38-refget.json`
+  - `mm39-refget.json` or `GRCm39-refget.json` → `mm39.GRCm39-refget.json`
+- Update `--refget` paths in your scripts accordingly
 
 ---
 
