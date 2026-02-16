@@ -104,7 +104,7 @@ git clone https://github.com/LSBDT/isotag.git
 cd isotag
 
 # Install dependencies
-pip install click
+pip install click pysam
 ```
 
 **Requirements**: Python 3.8+, samtools 1.18+, click
