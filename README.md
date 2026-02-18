@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![GA4GH](https://img.shields.io/badge/GA4GH-RefGet%20Compatible-green.svg)](https://samtools.github.io/hts-specs/refget.html)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18676569.svg)](https://doi.org/10.5281/zenodo.18676569)
 
 A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.3** merges UCSC+NCBI RefGet JSONs and fixes a chromosome alias bug.
 
@@ -146,6 +147,26 @@ python3 decode_tags.py -b "aKF498dAp.3e8.1004" -s "aKF498dAp.4b0.7d0.866.bb8" --
 # With chromosome name lookup
 python3 decode_tags.py -b "aKF498dAp.3e8.1004" -r hg38.GRCh38-refget.json
 ```
+
+## 📦 Example Datasets
+
+Pre-tagged BAM files are available on Zenodo for both hg38 and T2Tv2 genomes, annotated against GENCODE v49 and RefSeq:
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18676569.svg)](https://doi.org/10.5281/zenodo.18676569)
+
+**Download**: https://doi.org/10.5281/zenodo.18676569
+
+| File | Genome | Annotation | Size |
+|------|--------|------------|------|
+| `hg38_GENCODEv49_sorted_isotagged.bam` | hg38 | GENCODE v49 | 280 MB |
+| `hg38_RefSeq_sorted_isotagged.bam` | hg38 | RefSeq | 249 MB |
+| `T2Tv2_GENCODEv49_sorted_isotagged.bam` | T2Tv2 | GENCODE v49 | 304 MB |
+| `T2Tv2_RefSeq_sorted_isotagged.bam` | T2Tv2 | RefSeq | 241 MB |
+
+All files contain the full IsoTag set (XI, XB, XS, XT, XC, XV tags) and can be used as:
+- Reference data for `isotag_intersect.py` cross-sample comparisons
+- Input for `isotag_create_bed_index.py` / `isotag_query_bed_index.py`
+- Benchmarks for validating your own tagged BAMs
 
 ## 📖 Detailed Examples
 
@@ -379,6 +400,7 @@ Version: 2.3.0 (2026)
 
 ## 🔗 Related Resources
 
+- **IsoTag Example Datasets (Zenodo)**: https://doi.org/10.5281/zenodo.18676569
 - **GA4GH RefGet Specification**: https://samtools.github.io/hts-specs/refget.html
 - **VRS (Variation Representation Specification)**: https://vrs.ga4gh.org
 - **SAM/BAM Format**: https://samtools.github.io/hts-specs/SAMv1.pdf
