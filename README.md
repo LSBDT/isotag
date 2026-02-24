@@ -401,6 +401,7 @@ Version: 2.3.0 (2026)
 - **GA4GH RefGet Specification**: https://samtools.github.io/hts-specs/refget.html
 - **VRS (Variation Representation Specification)**: https://vrs.ga4gh.org
 - **SAM/BAM Format**: https://samtools.github.io/hts-specs/SAMv1.pdf
+- **Poster AGBT General Meeting 2026**: https://zenodo.org/records/18653366
 
 ---
 
