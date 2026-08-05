@@ -5,6 +5,68 @@ All notable changes to IsoTag will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-08-05
+
+### 🧬 Major Release: X5/X3 Tags, XC v11.0 Rewrite, VRS v2 XV, Full Toolkit
+
+### 🔐 XV Tag: VRS v2 Migration (Breaking Change)
+- **XV now emits full GA4GH VRS v2 Allele identifiers** (`ga4gh:VA.<32-char digest>`,
+  comma-separated) instead of the prior IsoTag-internal 32-char dot-separated hashes.
+  v2.3-and-earlier XV values are **not comparable** to v2.4+ values — re-tag with `isotag.py`
+  if you need VRS-compatible variant IDs.
+- **Requires an unmasked RefGet mapping** (`--keep-ambiguous-bases`) — `isotag.py` now refuses
+  to emit XV against a masked mapping (the tool's own default, and the default for any bundled
+  `refget/*.json`). XI/XB/XS/XT/XC/X5/X3 are unaffected and may still use a masked mapping.
+- **Three correctness bugs found and fixed** during the migration:
+  1. *Non-compliant VRS digest* — the prior implementation embedded the full location object
+     inline instead of first computing a separate location digest, and used the VRS v1
+     `SequenceState` type instead of VRS v2's `LiteralSequenceExpression`, producing IDs that
+     looked plausible but would never match ClinVar/ClinGen. Verified against the official VRS
+     v2 test vector and a BRCA1 ClinVar golden fixture (`ga4gh:VA.gbvJw0s4OeAvloCeAM6BNNvrjFC_Dhc8`).
+  2. *Genomic-position drift across splice junctions* — MD-tag-based position tracking never
+     accounted for CIGAR `N` (intron) length. Fixed by walking the genomic cursor (advanced by
+     every CIGAR op including `N`) separately from the MD-axis cursor (advanced only by `M`/`D`).
+  3. *1-based vs 0-based coordinates* — XV now converts SAM's 1-based POS to VRS's 0-based
+     inter-residue convention (`start = SAM_POS - 1`).
+- **Indels are deliberately omitted from XV** rather than emitted with a wrong/placeholder
+  identifier — reference-aware VRS normalization for indels is not yet implemented.
+  XI/XB/XS/XT/XC/X5/X3 are unaffected. Tests: `test_scripts/test_vrs2_xv.py`.
+
+#### New Tags
+- **X5 (TSS Cluster)**: Bins transcript 5' ends at 200bp resolution (configurable via `--x5x3-bin-size`). Validated: 43.3% of X5 clusters overlap FANTOM5 CAGE at ±100bp; 43× above genic-space null (Z=1903, 1000 permutations within GENCODE v47 gene bodies). Use 35bp bins for higher resolution (54.9% overlap; 45.3% with matched ±35bp window).
+- **X3 (PolyA Cluster)**: Bins transcript 3' ends at 200bp resolution. Validated: 29.16% of X3 clusters overlap PolyA_DB v4 at ±100bp; 14× above genic-space null (Z=811).
+
+#### XC Tag v11.0 (Breaking Change)
+- **Algorithm rewritten**: `chr_hash | strand | middle_bin(1kb) | exon_len_bin1(10bp) | ...` (midpoint + binned exon lengths). Replaces v10.0 (pure location, 10kb bins).
+- **Re-tagging required**: v10.0 and v11.0 XC hashes are incompatible. Use `isotag.py` from this release to re-tag.
+- **Validated**: 76.0% multi-read cluster purity; ARI=0.4238; V-measure H=0.913 vs GENCODE v47 (MPC human dataset, hg38).
+- ⚠️ **Wobble caveat**: 10bp length bins tolerate ±1bp for single-junction reads (80% same tag); 7-junction reads have 79% bin-cross probability. Use XC for locus-level grouping; use XI for exact identity.
+- **New flag**: `--xc-midpoint-only` — coordinate-only baseline (no exon lengths) for comparison.
+
+#### Full Toolkit (38 tools shipped)
+All 38 production scripts now in this release. Previously only 7 were shipped. Includes: `isotag_stats.py`, `isotag_filter.py`, `isotag_count.py`, `isotag_merge.py`, `isotag_diff.py`, `isotag_clustering.py`, and 25 others. See [README](README.md#-full-toolkit-reference) for the complete list.
+
+#### New CLI Flags
+- `--no-variants` / `-V`: Disable XV tag generation
+- `--x5x3-bin-size BP`: TSS/PolyA bin size (default: 200bp)
+- `--xc-position-quantum BP`: Locus bin size for XC (default: 1000bp)
+- `--xc-bin-size BP`: Exon-length bin size for XC (default: 10bp)
+- `--xc-midpoint-only`: Use midpoint-only XC (no exon lengths)
+
+#### Bug Fixes
+- **@PG header** now written to BAM output (SAM spec requirement)
+- **RefGet masking-flag check**: warns if user JSON was generated with v2.2.0 (missing ambiguous_bases_masked flag)
+- **Secondary reads excluded** from gene assignment in `isotag_xc_validate.py` (`samtools view -F 0x900`)
+- **Dockerfile**: now uses `requirements.txt` with pinned versions
+- **XT documentation corrected**: exact splice junction matching, not wobble-tolerant
+
+#### Documentation
+- README updated to v2.4: X5/X3 validation table, downstream tools (TranSigner, oarfish, scywalker), GA4GH SeqCol v1.0 spec, XC v11.0 limitations, VRS v2 XV format
+- TAG_FORMAT.md v2.4: XC v11.0 algorithm, X5/X3 sections, XT corrected, XV Tag rewritten for VRS v2
+- CI: GitHub Actions test workflow added (`test.yml`)
+
+---
+
 ## [2.3.0] - 2026-02-12
 
 ### 🔀 Minor Release: Merged RefGet JSONs + NC_ Alias Bug Fix

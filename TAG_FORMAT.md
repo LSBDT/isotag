@@ -1,4 +1,4 @@
-# IsoTag Tag Format Specification v2.2
+# IsoTag Tag Format Specification v2.4
 
 This document provides the complete technical specification for all IsoTag BAM/SAM tags.
 
@@ -19,14 +19,16 @@ This document provides the complete technical specification for all IsoTag BAM/S
 
 ## Overview
 
-IsoTag v2.2 uses **six custom BAM tags** to encode transcript isoform structure, splice junctions, biological clustering, gene/locus identity, and variants:
+IsoTag v2.4 uses **eight custom BAM tags** to encode transcript isoform structure, splice junctions, biological clustering, locus identity, TSS/polyA sites, and variants:
 
 - **XI**: Unique isoform structure identifier (32-char hash)
 - **XB**: Reversible boundary tag (8-char chr hash + hex-encoded ends)
 - **XS**: Reversible splicetag (8-char chr hash + hex-encoded splice junctions)
-- **XT**: Biological transcript group (32-char hash with mode-based clustering)
-- **XC**: Gene/locus cluster identifier (32-char hash, pure location-based)
-- **XV**: Individual variant identifiers (32-char hashes, optional)
+- **XT**: Biological transcript group (32-char hash, exact splice junction matching)
+- **XC**: Locus cluster identifier (32-char hash, midpoint + binned exon lengths; v11.0)
+- **X5**: TSS cluster (32-char hash, binned 5′ end; default 200bp bins)
+- **X3**: PolyA cluster (32-char hash, binned 3′ end; default 200bp bins)
+- **XV**: GA4GH VRS v2 Allele identifiers (SNVs/substitutions, comma-separated, optional; v2.4+)
 
 ### Design Principles
 
@@ -43,11 +45,13 @@ IsoTag v2.2 uses **six custom BAM tags** to encode transcript isoform structure,
 | Tag | Type | Length | Reversible | Purpose |
 |-----|------|--------|------------|---------|
 | **XI** | Z (string) | 32 chars | No | Unique isoform structure ID |
-| **XB** | Z (string) | Variable | **Yes** | 5'/3' transcript boundary coordinates |
+| **XB** | Z (string) | Variable | **Yes** | 5′/3′ transcript boundary coordinates |
 | **XS** | Z (string) | Variable | **Yes** | Internal splice junction coordinates |
-| **XT** | Z (string) | 32 chars | No | Transcript group (fuzzy clustering) |
-| **XC** | Z (string) | 32 chars | No | Gene/locus cluster (pure location) |
-| **XV** | Z (string) | Variable | No | Individual variant IDs |
+| **XT** | Z (string) | 32 chars | No | Transcript group (exact splice junctions) |
+| **XC** | Z (string) | 32 chars | No | Locus cluster (midpoint + exon lengths; v11.0) |
+| **X5** | Z (string) | 32 chars | No | TSS cluster (binned 5′ end) |
+| **X3** | Z (string) | 32 chars | No | PolyA cluster (binned 3′ end) |
+| **XV** | Z (string) | Variable | No | GA4GH VRS v2 Allele IDs (comma-separated; v2.4+) |
 
 ### Tag Presence Rules
 
@@ -56,6 +60,8 @@ IsoTag v2.2 uses **six custom BAM tags** to encode transcript isoform structure,
 - **XS**: Present only for multi-exon transcripts (2+ exons)
 - **XT**: Always present (required for all reads with CIGAR)
 - **XC**: Always present (required for all reads with CIGAR)
+- **X5**: Always present (required for all reads with CIGAR)
+- **X3**: Always present (required for all reads with CIGAR)
 - **XV**: Present only when variants detected AND variant detection enabled
 
 ---
@@ -174,6 +180,8 @@ def decode_boundarytag(xb_tag: str) -> Tuple[str, str, int, int]:
 
 ## XS Tag - Splicetag
 
+> **⚠️ Tag name collision warning:** `XS` is also used by BWA-MEM (`XS:i`, insert size for paired-end reads) and STAR (`XS:A`, strand of the gene). IsoTag uses `XS:Z` (string type), which is a distinct SAM type. These tags coexist safely in a BAM if written by separate tools, but downstream parsers that query by tag name `XS` without checking the type may return unexpected results. Check your aligner's tag usage before running IsoTag on pre-aligned BAMs.
+
 ### Purpose
 Reversible encoding of internal splice junction coordinates.
 
@@ -285,7 +293,7 @@ def reconstruct_exons(xb_tag: str, xs_tag: str) -> List[Tuple[int, int]]:
 ## XT Tag - Transcript Group
 
 ### Purpose
-Biological clustering of transcripts with fuzzy boundaries (TSS variation, degradation, etc).
+Biological transcript group using exact splice junction coordinates. Transcripts with identical splice junctions (same exon boundaries) share the same XT tag. **Not wobble-tolerant**: any ±1bp Nanopore junction wobble produces a different XT hash. Use XC for locus-level grouping with partial wobble tolerance.
 
 ### Format
 ```
@@ -395,25 +403,28 @@ def generate_xt_group_id(chr_refget_32: str, strand: str, exons: List[Tuple[int,
 
 ---
 
-## XC Tag - Gene/Locus ID
+## XC Tag - Locus Cluster ID (v11.0)
 
 ### Purpose
-Pure location-based gene/locus identifier that groups ALL transcripts at the same genomic location, regardless of isoform structure. Suitable for use as a gene ID or locus ID without requiring annotation databases.
+Locus cluster identifier grouping transcripts by genomic midpoint and binned exon lengths. Designed as an isoform-tolerant locus ID: nearby isoforms tend to share the same XC, while transcripts at different loci get different XC values.
+
+⚠️ **Breaking change from v10.0** (pure location only): v11.0 encodes exon lengths in addition to midpoint. v10.0 and v11.0 tags are bit-for-bit incompatible — re-tag existing BAMs.
 
 ### Format
 ```
 XC:Z:[32-character-hash]
 ```
 
-### Serialization (before hashing)
+### Serialization (before hashing, v11.0)
 ```
-[32-chr-refget-hash]|[strand]|[start_bin]|[end_bin]
+[32-chr-refget-hash]|[strand]|[middle_bin]|[len_bin1]|[len_bin2]|...
 ```
 
 Where:
-- **start_bin** = `transcript_start // xc_bin_size`
-- **end_bin** = `transcript_end // xc_bin_size`
-- **xc_bin_size** = configurable (default: 10000bp)
+- **middle_bin** = `(transcript_start + transcript_end) // 2 // xc_position_quantum`
+- **xc_position_quantum** = configurable (default: 1000bp)
+- **len_binN** = `exon_length_N // xc_bin_size` for each exon, sorted by position
+- **xc_bin_size** = configurable (default: 10bp)
 
 ### Example
 ```bash
@@ -421,11 +432,13 @@ Where:
 Chromosome: chr1 (RefGet: aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2)
 Strand: +
 Exons: 1000000-1001200, 1005000-1005150, 1010000-1020000
-# start_bin = 1000000 // 10000 = 100
-# end_bin = 1020000 // 10000 = 102
+# Exon lengths: 1200, 150, 10000
+# midpoint = (1000000 + 1020000) / 2 = 1010000
+# middle_bin = 1010000 // 1000 = 1010
+# len_bins: 1200//10=120, 150//10=15, 10000//10=1000
 
 # Serialization
-"aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2|+|100|102"
+"aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2|+|1010|120|15|1000"
 
 # Final XC tag
 XC:Z:a7Bf9xK2mP3qR5tN8wY1zC4dF6hJ0lO
@@ -433,38 +446,42 @@ XC:Z:a7Bf9xK2mP3qR5tN8wY1zC4dF6hJ0lO
 
 ### XC vs XT Comparison
 
-| Feature | XT (Transcript Group) | XC (Gene/Locus) |
-|---------|----------------------|-----------------|
-| Position | Binned (mode-based) | Binned (start/end) |
+| Feature | XT (Transcript Group) | XC (Locus Cluster, v11.0) |
+|---------|----------------------|---------------------------|
+| Position | Binned (mode-based) | Midpoint binned (1kb) |
 | Strand | ✓ | ✓ |
-| Exon count/lengths | Quantized | **Ignored** |
-| Splice junctions | ✓ | **Ignored** |
-| Genomic span | Quantized | **Ignored** |
-| Same gene, different isoforms | May differ | **Always same** ✅ |
-| Clustering level | Isoform group | Gene/locus |
-| Use case | Isoform clustering | Gene-level ID |
+| Exon lengths | Quantized | Binned (10bp) |
+| Splice junctions | Exact | **Ignored** |
+| Wobble tolerance | None (exact hash) | Partial (±1bp for 1-junction reads) |
+| Same gene, different isoforms | Usually differ | May group if lengths similar |
+| Clustering level | Isoform group | Locus + length cluster |
 
-### Bin Size Parameter
+### Wobble Tolerance Caveat
 
-| Bin Size | Clustering Level | Use Case |
-|----------|-----------------|----------|
-| **10bp** | Very fine | Splice wobble detection |
-| **100bp** | Fine | Isoform discovery with tolerance |
-| **1kb** | Moderate | Locus-level grouping |
-| **10kb** (default) | Gene-level | Gene-level analysis ⭐ |
-| **100kb** | Very coarse | May merge nearby genes |
+At 10bp exon length bins, any ±1bp Nanopore junction wobble shifts one exon length by ±1bp.
+Probability of a bin boundary crossing = 20% per junction. For multi-junction transcripts:
+- 1-junction: 20% chance of bin change → ~80% same-XC
+- 3-junction: 1 − 0.80³ = 49% chance of change → majority get different XC
+- 7-junction: 1 − 0.80⁷ = 79% chance of change
+
+XC is **not** wobble-tolerant for transcripts with ≥3 junctions. Use XT for exact grouping.
 
 ### Encoding Algorithm
 ```python
-def generate_xc_cluster_id(chr_refget_32: str, strand: str,
-                           exons: List[Tuple[int, int]],
-                           xc_bin_size: int = 10000) -> str:
-    """Generate XC tag gene/locus cluster ID"""
+def serialize_cluster_xc(chr_refget_32: str, strand: str,
+                         exons: List[Tuple[int, int]],
+                         xc_position_quantum: int = 1000,
+                         xc_bin_size: int = 10) -> str:
+    """Generate XC tag locus cluster ID (v11.0)"""
     sorted_exons = sorted(exons)
-    start_bin = sorted_exons[0][0] // xc_bin_size
-    end_bin = sorted_exons[-1][1] // xc_bin_size
+    start = sorted_exons[0][0]
+    end = sorted_exons[-1][1]
+    midpoint = (start + end) // 2
+    middle_bin = midpoint // xc_position_quantum
+    exon_length_bins = [str((e - s) // xc_bin_size) for s, e in sorted_exons]
 
-    serialization = f"{chr_refget_32}|{strand}|{start_bin}|{end_bin}"
+    parts = [chr_refget_32, strand, str(middle_bin)] + exon_length_bins
+    serialization = '|'.join(parts)
     return sha512t24u(serialization.encode('utf-8'))
 ```
 
@@ -472,81 +489,158 @@ def generate_xc_cluster_id(chr_refget_32: str, strand: str,
 - **Length**: Always 32 characters
 - **Character set**: Base64URL (A-Z, a-z, 0-9, -, _)
 - **Reversibility**: No (one-way hash)
-- **Key property**: All isoforms at the same genomic locus produce the same XC tag
+- **CLI flags**: `--xc-position-quantum 1000` (locus bin size), `--xc-bin-size 10` (length bin)
+- **Midpoint-only mode**: `--xc-midpoint-only` disables exon-length binning (pure location baseline)
+
+---
+
+## X5 Tag - TSS Cluster
+
+### Purpose
+Transcription start site (TSS) cluster — groups reads sharing the same binned 5′ end position.
+Enables TSS discovery and CAGE data comparison without external annotation.
+
+### Format
+```
+X5:Z:[32-character-hash]
+```
+
+### Serialization (before hashing)
+```
+[32-chr-refget-hash]|[strand]|[tss_bin]
+```
+
+Where:
+- **tss_bin** = `transcript_5prime_end // x5x3_bin_size`
+- **x5x3_bin_size** = configurable (default: 200bp; use 35bp for finer resolution)
+- 5′ end = leftmost exon start on + strand; rightmost exon end on − strand
+
+### Validation
+- 43.3% of X5 clusters (200bp bins) overlap FANTOM5 CAGE peaks within ±100bp
+- 54.9% at 35bp bins with ±100bp window; 45.3% at 35bp bins with matched ±35bp window
+- Genic-space permutation null: 43.1× enrichment over random genic positions (Z=1903)
+
+---
+
+## X3 Tag - PolyA Cluster
+
+### Purpose
+Poly-adenylation site (polyA) cluster — groups reads sharing the same binned 3′ end position.
+Enables polyA site discovery and PolyA_DB / PolyASite comparison without external annotation.
+
+### Format
+```
+X3:Z:[32-character-hash]
+```
+
+### Serialization (before hashing)
+```
+[32-chr-refget-hash]|[strand]|[polya_bin]
+```
+
+Where:
+- **polya_bin** = `transcript_3prime_end // x5x3_bin_size`
+- 3′ end = rightmost exon end on + strand; leftmost exon start on − strand
+
+### Validation
+- 29.16% of X3 clusters overlap PolyA_DB v4 sites within ±100bp
 
 ---
 
 ## XV Tag - Variants
 
+**Changed in v2.4 (VRS v2 migration):** XV now emits full GA4GH VRS v2 Allele
+identifiers instead of 32-char IsoTag-internal hashes. This is a breaking format change —
+v2.3-and-earlier XV values are not comparable to v2.4+ XV values.
+
 ### Purpose
-Individual variant identifiers for linking isoforms to genomic variations.
+Per-read variant identifiers, computed as canonical GA4GH VRS v2 Allele IDs so they can be
+matched directly against ClinVar/ClinGen and other VRS-indexed external databases.
 
 ### Format
 ```
-XV:Z:[variant1-32chars].[variant2-32chars].[variant3-32chars]...
+XV:Z:ga4gh:VA.<32-char-digest>[,ga4gh:VA.<32-char-digest>...]
 ```
-
-### Variant Serialization (before hashing)
-```
-[32-chr-refget]:[position]:[ref]>[alt]
-```
+Multiple variants on one read are comma-separated, sorted, and deduplicated. A comma is
+unambiguous as a separator because GA4GH identifiers already contain a period (`ga4gh:VA.`).
 
 ### Example
 ```bash
-# Variant 1: chr1:1050:A>G
-Serialization: "aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2:1050:A>G"
-Hash: Q4fUfjJXgQwpSxFgeGVowhJaLTVg3Fqk
-
-# Variant 2: chr1:2075:C>T
-Serialization: "aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2:2075:C>T"
-Hash: 85IT2XfuQ7nofo_xMFc4PzCZNtgAcZ96
-
-# Final XV tag
-XV:Z:Q4fUfjJXgQwpSxFgeGVowhJaLTVg3Fqk.85IT2XfuQ7nofo_xMFc4PzCZNtgAcZ96
+# NC_000017.11:g.43106487A>G (BRCA1, ClinVar golden fixture)
+XV:Z:ga4gh:VA.gbvJw0s4OeAvloCeAM6BNNvrjFC_Dhc8
 ```
 
-### Variant Format Rules
-- **SNPs**: `pos:ref>alt` (e.g., `1050:A>G`)
-- **Deletions**: `pos:seq>-` (e.g., `2075:ATG>-`)
-- **Insertions**: `pos:->seq` (e.g., `3100:->TACG`)
-- **MNVs**: `pos:ref>alt` (e.g., `4000:AC>GT`)
+### Computation
+1. Extract read-supported alleles from CIGAR + MD + SEQ, synchronizing the genomic cursor
+   (advanced by every CIGAR op, including `N` introns) against the MD-axis cursor (advanced
+   only by `M`/`D`) so mismatches downstream of a splice junction land at the correct position.
+2. Convert to 0-based inter-residue coordinates (VRS convention): `start = SAM_POS - 1`.
+3. Trim shared literal ref/alt flanks. If trimming would produce a pure insertion or deletion,
+   the variant is **omitted** — canonical VRS normalization for indels requires reference-aware
+   left-alignment not yet implemented here.
+4. Digest per GA4GH's `sha512t24u` algorithm over canonical JSON: a `SequenceLocation` digest
+   (chr RefGet accession + start/end), then an `Allele` digest over `{location: <location
+   digest>, state: {type: LiteralSequenceExpression, sequence: alt}}`.
+5. Prefix with `ga4gh:VA.`.
 
-### Encoding Algorithm
-```python
-def generate_variant_id(chr_refget_32: str, position: int,
-                        ref: str, alt: str) -> str:
-    """Generate individual variant ID"""
-    variant_str = f"{chr_refget_32}:{position}:{ref}>{alt}"
-    return sha512t24u(variant_str.encode('utf-8'))
-```
+### Safety Boundary
+- **Requires an unmasked RefGet mapping.** IsoTag's default ambiguous-base masking (see below)
+  changes the chromosome sequence hash and therefore produces XV identifiers that will not
+  match ClinVar/ClinGen. `isotag.py` refuses to emit XV against a masked mapping — regenerate
+  with `--keep-ambiguous-bases` from the exact canonical FASTA. XI/XB/XS/XT/XC/X5/X3 are
+  unaffected by this restriction and may still use a masked mapping.
+- **Requires `--refget` or `--genome`.** Legacy chromosome-name hashing (no genome/refget
+  provided) has no RefGet accession to build a VRS `SequenceReference` from.
+- **Indels are silently omitted from XV**, not emitted with a wrong or placeholder identifier.
 
 ### Properties
-- **Length**: Variable (32 chars × number of variants + dots)
-- **Reversibility**: No (one-way hash)
-- **Presence**: Optional (only when variants detected)
-- **Separator**: Dot (`.`) between variant IDs
+- **Length**: Variable (one or more `ga4gh:VA.<32-char>` IDs, comma-separated)
+- **Reversibility**: No (one-way digest)
+- **Presence**: Optional — only for SNV/substitution candidates, only when variant detection
+  is enabled and an unmasked RefGet mapping is available
 
 ---
 
 ## RefGet Chromosome Hashing
 
 ### Overview
-IsoTag v2.0 uses **RefGet-based chromosome hashing** to solve naming inconsistencies (chr1 vs Chr1 vs CHR1 vs 1).
+IsoTag uses a **RefGet-inspired chromosome hashing scheme** to solve naming inconsistencies (chr1 vs Chr1 vs CHR1 vs 1).
+
+**Important difference from canonical GA4GH RefGet:** IsoTag masks IUPAC ambiguous bases (R, Y, S, W, K, M, B, D, H, V) to 'N' before hashing. The GA4GH RefGet specification hashes sequences as-is. As a result, IsoTag chromosome hashes **will not match** canonical GA4GH RefGet API IDs for any chromosome that contains ambiguous bases.
+
+**Why the difference exists:** UCSC hg38 and NCBI GRCh38 represent the same genome but use different ambiguous base encodings at some positions. Masking to 'N' before hashing ensures both assemblies produce identical XC/XI/XT tags, enabling cross-assembly comparison. Canonical GA4GH compatibility was sacrificed for cross-assembly reproducibility.
+
+**Exception: XV requires the unmasked mapping.** Since the v2.4 VRS v2 migration, XV Allele
+IDs must be computed from the exact canonical reference sequence to match ClinVar/ClinGen —
+masking breaks that match. `isotag.py` refuses to emit XV against a masked mapping; regenerate
+with `--keep-ambiguous-bases` from the exact canonical FASTA if you need real XV values. This
+does not change the default masking behavior for XI/XB/XS/XT/XC/X5/X3.
 
 ### Algorithm
 ```python
 def calculate_refget_id(chromosome_sequence: str) -> str:
-    """Calculate RefGet ID for chromosome sequence"""
-    seq_bytes = chromosome_sequence.upper().encode('ascii')
-    return sha512t24u(seq_bytes)  # Returns 32-char base64url string
+    """
+    Calculate IsoTag chromosome hash (RefGet-inspired, with ambiguous base masking).
+
+    NOTE: This does NOT produce canonical GA4GH RefGet IDs.
+    Ambiguous IUPAC bases are masked to 'N' before hashing to ensure
+    UCSC hg38 and NCBI GRCh38 produce identical hashes.
+    """
+    import re
+    AMBIGUOUS_BASES = re.compile(r'[RYSWKMBDHV]', re.IGNORECASE)
+    normalized = AMBIGUOUS_BASES.sub('N', chromosome_sequence.upper())
+    return sha512t24u(normalized.encode('ascii'))  # Returns 32-char base64url string
 ```
+
+> **v2.2.0 → v2.2.1 migration warning:** RefGet JSONs generated with IsoTag v2.0–v2.2.0 did NOT mask ambiguous bases. Hashes from those versions are incompatible with v2.2.1+ hashes. Any `.json` file generated before v2.2.1 must be regenerated with `isotag_refget.py` to produce correct cross-assembly tags.
 
 ### Hash Lengths Used
 
 | Tag Type | Hash Length | Purpose |
 |----------|-------------|---------|
 | **XB, XS** | 8 chars | Compact reversible encoding |
-| **XI, XT, XC, XV** | 32 chars | Full chromosome hash in serialization |
+| **XI, XT, XC** | 32 chars | Full chromosome hash in serialization |
+| **XV** | 32-char base64url per digest (`ga4gh:VA.<digest>`, comma-separated) | GA4GH VRS v2 Allele ID (see XV Tag section) |
 
 ### RefGet Cache Format
 ```json

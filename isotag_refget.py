@@ -23,29 +23,7 @@ import click
 from vrs_compat import sha512t24u
 
 
-def mask_ambiguous_bases(sequence: str, keep_ambiguous: bool = False) -> str:
-    """
-    Mask ambiguous IUPAC codes with 'N' for consistent RefGet hashing
-
-    This ensures UCSC hg38 and NCBI GRCh38 produce identical chromosome hashes
-    despite differences in ambiguous base representation (R, Y, S, W, K, M, etc.)
-
-    Args:
-        sequence: DNA sequence string
-        keep_ambiguous: If True, keep R/Y/etc as-is (may cause cross-genome incompatibility)
-
-    Returns:
-        Normalized sequence for hashing
-    """
-    if keep_ambiguous:
-        return sequence.upper()
-
-    # Convert ambiguous IUPAC bases to N
-    canonical_bases = set('ACGTN')
-    normalized = ''.join(base if base in canonical_bases else 'N'
-                        for base in sequence.upper())
-
-    return normalized
+from isotag_utils import mask_ambiguous_bases  # shared with isotag.py
 
 
 class RefGetCalculator:

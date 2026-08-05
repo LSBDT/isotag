@@ -1,159 +1,143 @@
 #!/usr/bin/env python3
-"""
-VRS-Compatible Module for IsoTag v6.0
+"""Minimal GA4GH VRS v2 computed identifiers used by IsoTag's XV tag.
 
-Contains official VRS code copied from GA4GH VRS-Python implementation
-for strict VRS compliance in VARSID calculation.
+This module intentionally handles only literal alleles that can be normalized
+without fetching reference context. SNVs and substitutions are safe. Pure
+insertions/deletions require reference-aware VRS normalization and are rejected.
 
-Source: https://github.com/ga4gh/vrs-python
-License: Apache License 2.0
+Replaces the pre-VRS-v2 module (IsoTag v2.3 and earlier), which embedded the
+full location object inline in the Allele digest and used the VRS v1
+SequenceState type — both produce non-compliant identifiers that will not
+match ClinVar/ClinGen VRS-indexed data. See VRS2_MIGRATION.md for details.
 """
 
 import base64
 import hashlib
 import json
-from typing import Dict, Any
+import re
+from dataclasses import dataclass
+from typing import Any, Dict, Tuple
 
-try:
-    from canonicaljson import encode_canonical_json
-except ImportError:
-    # Fallback for basic JSON serialization
-    def encode_canonical_json(obj):
-        return json.dumps(obj, sort_keys=True, separators=(',', ':')).encode('utf-8')
+
+REFGET_RE = re.compile(r"^(?:ga4gh:)?SQ\.[0-9A-Za-z_-]{32}$")
 
 
 def sha512t24u(blob: bytes) -> str:
-    """Generate a base64url-encode, truncated SHA-512 digest for given
-    binary data (OFFICIAL VRS IMPLEMENTATION)
+    """Return the GA4GH 24-byte truncated SHA-512 base64url digest."""
+    return base64.urlsafe_b64encode(hashlib.sha512(blob).digest()[:24]).decode(
+        "ascii"
+    )
 
-    The sha512t24u digest is a convention for constructing and
-    formatting digests for use as object identifiers. Specifically::
 
-        * generate a SHA512 digest on binary data
-        * truncate at 24 bytes
-        * encode using base64url encoding
+def canonical_json(obj: Dict[str, Any]) -> bytes:
+    """Return canonical bytes for the ASCII-only VRS objects emitted here."""
+    return json.dumps(
+        obj, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
 
-    Examples:
-    >>> sha512t24u(b"")
-    'z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXc'
 
-    >>> sha512t24u(b"ACGT")
-    'aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2'
+def ga4gh_digest(obj: Dict[str, Any]) -> str:
+    return sha512t24u(canonical_json(obj))
 
-    Source: ga4gh.core.digests.py
+
+def normalize_substitution(start: int, ref: str, alt: str) -> Tuple[int, str, str]:
+    """Trim shared literal flanks.
+
+    If trimming creates an insertion or deletion, reference context is required
+    for fully justified VRS normalization and this function raises ValueError.
     """
-    digest_size = 24
-    digest = hashlib.sha512(blob).digest()
-    tdigest_b64us = base64.urlsafe_b64encode(digest[:digest_size])
-    return tdigest_b64us.decode("ascii")
+    ref = ref.upper()
+    alt = alt.upper()
+    while ref and alt and ref[-1] == alt[-1]:
+        ref = ref[:-1]
+        alt = alt[:-1]
+    while ref and alt and ref[0] == alt[0]:
+        ref = ref[1:]
+        alt = alt[1:]
+        start += 1
+    if not ref or not alt:
+        raise ValueError(
+            "Reference-aware VRS normalization is required for insertions/deletions"
+        )
+    return start, ref, alt
 
 
-def vrs_serialize(obj: Dict[str, Any]) -> bytes:
-    """Serialize an object for VRS digest computation using canonical JSON
-    
-    Args:
-        obj: Dictionary representation of VRS object
-        
-    Returns:
-        Canonical JSON bytes for hashing
-        
-    Source: Adapted from ga4gh.core.identifiers.py
-    """
-    return encode_canonical_json(obj)
+@dataclass(frozen=True)
+class VRSAlleleV2:
+    """A normalized literal substitution represented as a VRS v2 Allele."""
 
+    refget_accession: str
+    start: int
+    ref: str
+    alt: str
 
-def calculate_vrs_digest(vrs_object: Dict[str, Any]) -> str:
-    """Calculate VRS digest for any VRS object
-    
-    Args:
-        vrs_object: Dictionary representation of VRS object
-        
-    Returns:
-        32-character VRS digest (without prefix)
-        
-    This is the core VRS digest calculation used across all VRS objects.
-    """
-    serialized = vrs_serialize(vrs_object)
-    return sha512t24u(serialized)
+    def __post_init__(self) -> None:
+        if not REFGET_RE.match(self.refget_accession):
+            raise ValueError("A complete SQ.<sha512t24u> RefGet accession is required")
+        if self.start < 0:
+            raise ValueError("VRS coordinates must be non-negative")
+        normalized = normalize_substitution(self.start, self.ref, self.alt)
+        object.__setattr__(self, "start", normalized[0])
+        object.__setattr__(self, "ref", normalized[1])
+        object.__setattr__(self, "alt", normalized[2])
 
+    @property
+    def bare_refget_accession(self) -> str:
+        prefix = "ga4gh:"
+        if self.refget_accession.startswith(prefix):
+            return self.refget_accession[len(prefix) :]
+        return self.refget_accession
 
-class VRSVariant:
-    """VRS-compliant variant representation for VARSID calculation
-    
-    This class creates VRS-compliant variant objects that can be used
-    to generate official VRS digests for variants.
-    """
-    
-    def __init__(self, refget_id: str, position: int, ref: str, alt: str):
-        """Initialize VRS variant
-        
-        Args:
-            refget_id: RefGet sequence identifier (e.g., SQ.F-LrLMe1SRpfUZHkQmvkVKFEGaoDeHul)
-            position: 0-based position on sequence
-            ref: Reference allele sequence
-            alt: Alternate allele sequence
-        """
-        self.refget_id = refget_id
-        self.position = position
-        self.ref = ref
-        self.alt = alt
-    
-    def to_vrs_object(self) -> Dict[str, Any]:
-        """Convert to VRS Allele object format for digest calculation
-        
-        Returns:
-            Dictionary representing VRS Allele object
-        """
-        # Create VRS SequenceLocation
-        location = {
+    def location_object(self) -> Dict[str, Any]:
+        return {
             "type": "SequenceLocation",
             "sequenceReference": {
-                "type": "SequenceReference", 
-                "refgetAccession": self.refget_id
+                "type": "SequenceReference",
+                "refgetAccession": self.bare_refget_accession,
             },
-            "start": self.position,
-            "end": self.position + len(self.ref)
+            "start": self.start,
+            "end": self.start + len(self.ref),
         }
-        
-        # Create VRS Allele
-        allele = {
+
+    def location_digest(self) -> str:
+        return ga4gh_digest(self.location_object())
+
+    def allele_digest_object(self) -> Dict[str, Any]:
+        return {
             "type": "Allele",
-            "location": location,
+            "location": self.location_digest(),
             "state": {
-                "type": "SequenceState",
-                "sequence": self.alt
-            }
+                "type": "LiteralSequenceExpression",
+                "sequence": self.alt,
+            },
         }
-        
-        return allele
-    
-    def calculate_vrs_id(self) -> str:
-        """Calculate official VRS ID for this variant
-        
-        Returns:
-            Full VRS identifier (e.g., ga4gh:VA.abc123...)
-        """
-        vrs_object = self.to_vrs_object()
-        digest = calculate_vrs_digest(vrs_object)
-        return f"ga4gh:VA.{digest}"
-    
-    def calculate_digest_only(self) -> str:
-        """Calculate just the digest portion (32 characters)
-        
-        Returns:
-            32-character digest for use in IsoTag XV tags
-        """
-        vrs_object = self.to_vrs_object()
-        return calculate_vrs_digest(vrs_object)
+
+    def identifier(self) -> str:
+        return "ga4gh:VA." + ga4gh_digest(self.allele_digest_object())
 
 
-def test_vrs_compatibility():
-    """Test VRS compatibility with known examples"""
-    # Test sha512t24u with known values
+def test_vrs_compatibility() -> None:
+    """Check official VRS v2 examples and the ClinVar BRCA1 fixture."""
     assert sha512t24u(b"ACGT") == "aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2"
-    assert sha512t24u(b"") == "z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXc"
-    print("✅ VRS sha512t24u compatibility verified")
+
+    official_example = VRSAlleleV2(
+        "SQ.IIB53T8CNeJJdUqzn9V_JnRtQadwWCbl", 44908821, "C", "T"
+    )
+    assert (
+        official_example.location_digest()
+        == "wIlaGykfwHIpPY2Fcxtbx4TINbbODFVz"
+    )
+    assert (
+        official_example.identifier()
+        == "ga4gh:VA.0AePZIWZUNsUlQTamyLrjm2HWUw2opLt"
+    )
+
+    brca1 = VRSAlleleV2(
+        "SQ.dLZ15tNO1Ur0IcGjwc3Sdi_0A6Yf4zm7", 43106486, "A", "G"
+    )
+    assert brca1.identifier() == "ga4gh:VA.gbvJw0s4OeAvloCeAM6BNNvrjFC_Dhc8"
 
 
 if __name__ == "__main__":
     test_vrs_compatibility()
+    print("VRS v2 compatibility checks passed")
