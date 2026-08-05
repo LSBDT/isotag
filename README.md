@@ -35,9 +35,6 @@ A production-ready system for generating standardized, RefGet-compatible isoform
 - ⚠️ **Wobble caveat**: 10bp length bins tolerate ±1bp for single-junction reads (~80% same tag), but 7-junction reads fail ~79% of the time at any junction. Use XC for locus-level grouping, not exact isoform identity — use **XI** for exact matches.
 - **Breaking change from v10.0**: Re-tag with `isotag.py` — v10.0 and v11.0 hashes are incompatible
 
-### **Full Toolkit (38 tools)** 🛠️ NEW!
-All 38 analysis scripts now included in this release. See [Full Toolkit Reference](#-full-toolkit-reference) below.
-
 ## 🎯 What's New in v2.3
 
 ### **Merged RefGet JSONs** 🔀 NEW!
@@ -422,50 +419,15 @@ samtools view tagged_sample.bam | grep "XS:Z:" | head -1 | \
 samtools view tagged_sample.bam | grep -o "XI:Z:[^ ]*" | sort -u | wc -l
 ```
 
-## 🧰 Full Toolkit Reference
-
-IsoTag ships 38 tools for end-to-end transcript analysis:
+## 🧰 Toolkit Reference
 
 | Tool | Purpose |
 |------|---------|
 | `isotag.py` | **Core** — tag BAM with all 8 IsoTag tags (XI/XB/XS/XT/XV/XC/X5/X3) |
 | `isotag_refget.py` | Build and merge RefGet JSON chromosome maps |
-| `isotag_create_bed_index.py` | BED index — 100–5000× smaller than full BAM, 4–5× faster queries |
-| `isotag_query_bed_index.py` | Query BED index for novel/matching isoforms |
-| `isotag_intersect.py` | Find reads matching tags in a reference BAM |
 | `decode_tags.py` | Decode XB/XS reversible tags back to coordinates |
-| `decode_splicetag.py` | Decode XS splicetag to junction coordinates |
-| `isotag_stats.py` | Comprehensive per-tag statistics and distribution analysis |
-| `isotag_filter.py` | Filter BAM by specific isotag IDs |
-| `isotag_bam_filter.py` | Filter BAM by tag presence/absence/value criteria |
-| `isotag_count.py` | Count reads per tag value or cluster |
-| `isotag_subset.py` | Subset BAM to reads matching a tag criterion |
-| `isotag_extract.py` | Extract reads by tag criteria to BED/TSV |
-| `isotag_annotate.py` | Annotate reads with gene/transcript information |
-| `isotag_validate.py` | Validate tag format and internal consistency |
-| `isotag_merge.py` | Merge two tagged BAMs (union or intersection of tag sets) |
-| `isotag_diff.py` | Differential tag analysis between two BAMs |
-| `isotag_compare.py` | Pairwise experiment comparison (shared/unique isoforms) |
-| `isotag_clustering.py` | Cluster analysis: purity, entropy, cluster size distribution |
-| `isotag_cluster_representative.py` | Select representative read per XC/XI cluster |
-| `isotag_coverage.py` | Per-tag coverage profiles across genomic regions |
-| `isotag_index.py` | Build tag-to-read index for fast lookup |
-| `isotag_query.py` | Query reads by tag value |
-| `isotag_query_index.py` | Query reads via pre-built index |
-| `isotag_novel_ranking.py` | Rank novel isoforms by evidence and uniqueness |
-| `isotag_isoform_variants.py` | Characterize variant patterns per isoform |
-| `isotag_boundary_analysis.py` | 5'/3' end heterogeneity across isoform clusters |
-| `isotag_fuzzy_rescue.py` | Rescue reads with ±1bp wobble across bin boundaries |
-| `isotag_convert.py` | Convert IsoTag output to GTF/GFF/BED formats |
-| `isotag_stats_compare.py` | Compare tag statistics across two experiments |
-| `isotag_xc_validate.py` | Validate XC clusters vs GENCODE (ARI/V-measure/purity) |
-| `isotag_xc_gencode_compare.py` | XC version stability across GENCODE releases |
-| `inspect_bam.py` | Inspect BAM header, tag presence, and alignment stats |
-| `inspect_tags.py` | Inspect tag values and decode summaries |
-| `tag_definitions.py` | Shared tag schema and hash utilities (library) |
-| `tag_summary.py` | Summarize all tag types in a BAM to TSV |
 | `isotag_utils.py` | Shared utilities: masking, hashing, encoding (library) |
-| `vrs_compat.py` | GA4GH VRS-compatible sequence identifier utilities |
+| `vrs_compat.py` | GA4GH VRS-compatible sequence identifier utilities (library) |
 
 ## 🤝 Contributing
 

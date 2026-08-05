@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.4.0] - 2026-08-05
 
-### 🧬 Major Release: X5/X3 Tags, XC v11.0 Rewrite, VRS v2 XV, Full Toolkit
+### 🧬 Major Release: X5/X3 Tags, XC v11.0 Rewrite, VRS v2 XV
 
 ### 🔐 XV Tag: VRS v2 Migration (Breaking Change)
 - **XV now emits full GA4GH VRS v2 Allele identifiers** (`ga4gh:VA.<32-char digest>`,
@@ -42,9 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Validated**: 76.0% multi-read cluster purity; ARI=0.4238; V-measure H=0.913 vs GENCODE v47 (MPC human dataset, hg38).
 - ⚠️ **Wobble caveat**: 10bp length bins tolerate ±1bp for single-junction reads (80% same tag); 7-junction reads have 79% bin-cross probability. Use XC for locus-level grouping; use XI for exact identity.
 - **New flag**: `--xc-midpoint-only` — coordinate-only baseline (no exon lengths) for comparison.
-
-#### Full Toolkit (38 tools shipped)
-All 38 production scripts now in this release. Previously only 7 were shipped. Includes: `isotag_stats.py`, `isotag_filter.py`, `isotag_count.py`, `isotag_merge.py`, `isotag_diff.py`, `isotag_clustering.py`, and 25 others. See [README](README.md#-full-toolkit-reference) for the complete list.
 
 #### New CLI Flags
 - `--no-variants` / `-V`: Disable XV tag generation
