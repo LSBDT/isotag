@@ -5,7 +5,7 @@
 [![GA4GH](https://img.shields.io/badge/GA4GH-RefGet--inspired-blue.svg)](https://samtools.github.io/hts-specs/refget.html)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18676569.svg)](https://doi.org/10.5281/zenodo.18676569)
 
-A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.4** adds TSS (X5) and PolyA (X3) cluster tags, rewrites the XC locus tag with validated isoform-length encoding, and ships the full 38-tool analysis toolkit.
+A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.4** adds TSS (X5) and PolyA (X3) cluster tags, rewrites the XC locus tag with validated isoform-length encoding, and ships a minimal 5-tool core toolkit (see [Toolkit Reference](#-toolkit-reference) below).
 
 ## 🎯 What's New in v2.4
 
@@ -456,25 +456,15 @@ GitHub: https://github.com/LSBDT/isotag
 Version: 2.4.0 (2026)
 ```
 
-## 🔗 Downstream Tools
-
-IsoTag-tagged BAM files are compatible with existing long-read RNA analysis tools:
-
-- **[TranSigner](https://github.com/Loren1994/TranSigner)** — isoform quantification using BAM-native tags
-- **[oarfish](https://github.com/COMBINE-lab/oarfish)** — Bayesian isoform quantification for long-read RNA-seq
-- **[scywalker](https://github.com/jksr/scywalker)** — single-cell long-read isoform analysis; XC tags can substitute for UMI-based cell grouping
-
 ## 🔗 Related Resources
 
 - **IsoTag Example Datasets (Zenodo)**: https://doi.org/10.5281/zenodo.18676569
 - **GA4GH RefGet Specification**: https://samtools.github.io/hts-specs/refget.html
 - **GA4GH SeqCol Specification v1.0**: https://ga4gh.github.io/refget/seqcols/ (bioRxiv: https://doi.org/10.1101/2025.10.06.680641)
 - **FANTOM5 CAGE Atlas**: https://fantom.gsc.riken.jp/5/
-- **PolyA_DB v4**: https://exon.njms.rutgers.edu/polya_db/v4/
 - **VRS (Variation Representation Specification)**: https://vrs.ga4gh.org
 - **SAM/BAM Format**: https://samtools.github.io/hts-specs/SAMv1.pdf
 - **Poster AGBT General Meeting 2026**: https://zenodo.org/records/18653366
-- **Monzó et al. 2025** (long-read RNA standardization rationale): https://doi.org/10.1101/gr.279865.124
 
 ---
 

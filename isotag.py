@@ -1254,7 +1254,7 @@ def isotag(input_file, output, genome, refget, no_variants, keep_ambiguous_bases
         with pysam.AlignmentFile(input_for_processing, mode_r) as in_bam:
             header_dict = in_bam.header.to_dict()
             header_dict.setdefault('PG', []).append({
-                'ID': 'isotag', 'PN': 'isotag', 'VN': '2.3.0',
+                'ID': 'isotag', 'PN': 'isotag', 'VN': '2.4.0',
                 'CL': ' '.join(sys.argv),
             })
             out_header = pysam.AlignmentHeader.from_dict(header_dict)
