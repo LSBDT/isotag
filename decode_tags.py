@@ -146,7 +146,7 @@ def decode_tags(boundarytag, splicetag, refget, reconstruct):
         click.echo("❌ Error: Provide at least one tag to decode (-b or -s)")
         return
 
-    click.echo("🔍 IsoTag Tag Decoder v8.2\n")
+    click.echo("🔍 IsoTag v2.5.0 Tag Decoder (XB/XS)\n")
 
     # Decode XB boundary tag
     if boundarytag:

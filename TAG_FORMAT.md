@@ -838,7 +838,7 @@ Full implementation available in:
 
 ## Version History
 
-- **v2.5.0** (2026-10-12): XC redesigned to v12.0 (end-free: internal-span anchor + binned intron/internal-exon lengths; terminal exon lengths dropped); `--xc-version 11` keeps the legacy formula
+- **v2.5.0** (2026-10-19): XC redesigned to v12.0 (end-free: internal-span anchor + binned intron/internal-exon lengths; terminal exon lengths dropped); `--xc-version 11` keeps the legacy formula
 - **v2.4.0** (2026-08-05): X5/X3 tags; XC v11.0 (midpoint + binned exon lengths); XV migrated to GA4GH VRS v2
 - **v2.2.0** (2026-02-09): Added XC gene/locus tag (pure location-based clustering)
 - **v2.0.0** (2025-10-02): Added XB/XS reversible tags, universal chromosome hashing, biological clustering

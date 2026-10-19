@@ -1,4 +1,4 @@
-# IsoTag v2.4 - Universal Isoform Identification System 🚀
+# IsoTag v2.5 - Universal Isoform Identification System 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -201,7 +201,9 @@ Pre-tagged BAM files are available on Zenodo for both hg38 and T2Tv2 genomes, an
 | `T2Tv2_GENCODEv49_sorted_isotagged.bam` | T2Tv2 | GENCODE v49 | 304 MB |
 | `T2Tv2_RefSeq_sorted_isotagged.bam` | T2Tv2 | RefSeq | 241 MB |
 
-All files contain the full IsoTag set (XI, XB, XS, XT, XC, XV tags) and can be used as benchmarks for validating your own tagged BAMs.
+All files contain the XI, XB, XS, XT, XC and XV tags and can be used as benchmarks for validating your own tagged BAMs.
+
+> **Note — tag versions in the Zenodo BAMs:** these files were tagged in February 2026 with an IsoTag release that predates v2.4. Their XC values use the pre-v11 formula (not comparable with XC v12.0), their XV values predate the VRS v2 migration, and they carry no X5/X3 tags. Re-tag with v2.5 `isotag.py` to get the current tag set.
 
 > **Note — which dataset each number comes from:** Zenodo example BAMs use GENCODE v49 / RefSeq. The XC v11.0 purity / ARI / V-measure figures were computed on an internal, under-described hg38 long-read dataset (MPC) against GENCODE v47 **gene** annotation. The v2.5 XC v12.0 figures come from the public HPRC Kinnex sample HG00097 (and the 206-sample cohort) against GENCODE v50; the version-stability figure compares GENCODE v49 basic with v50. None of these are directly comparable with each other or with results derived from the Zenodo BAMs.
 
