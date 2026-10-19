@@ -5,6 +5,32 @@ All notable changes to IsoTag will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - Unreleased
+
+### 🔗 XC Tag v12.0 — end-free cluster id (Breaking Change)
+- **Why**: XC v11.0 hashed the binned length of *every* exon, including the first and last. Those two
+  lengths are set by the read's 5′/3′ ends, so v11.0 silently demanded TSS/polyA agreement within a
+  10 bp bin. Measured on HPRC Kinnex HG00097 (10.9 M multi-exon reads) against GENCODE v50: only
+  **12.4%** of reads shared an XC v11.0 value with an annotated transcript, versus 46.9% for XT and
+  76.1% for the exact junction chain (XS).
+- **New serialization** (`chr8+strand | internal-span midpoint // 1 kb | internal span // 10 bp |
+  intron_1 // 10 | exon_2 // 10 | ... | intron_K // 10`): only junction coordinates enter the hash;
+  terminal exon lengths and read ends are left to X5/X3/XB. Mono-exon reads get a coarse locus id
+  (`| S | midpoint // 1 kb | length // 1 kb`). Same measurement: **76.9%** of reads match an
+  annotated transcript, 20.1% of GENCODE v50 multi-exon transcripts are hit (XS 18.4%); every XS
+  junction chain maps to exactly one XC v12.0 value (chr22 end-to-end check: 18,852 chains, max 1
+  XC each; v11.0: mean 2.70, max 267). Cross-gene collisions on the annotation side are unchanged
+  (162 vs 154 XS of ~600 k values). Runtime is unchanged (chr22: 44 s vs 42 s).
+- **CLI**: `--xc-version 12` is the default; `--xc-version 11` reproduces the v2.4 formula for
+  legacy datasets. `--xc-position-quantum` / `--xc-bin-size` keep their meaning (internal-span
+  midpoint bin, length bins). `--xc-midpoint-only` still produces the position-only baseline (v11
+  formula without length bins).
+- **Not comparable with v11.0** — re-tag with `isotag.py`. XI/XB/XS/XT/X5/X3/XV are unaffected.
+- **Known limitation**: internal differences smaller than one 10 bp bin (e.g. NAGNAG acceptor shifts)
+  can share an XC value — 17,126 GENCODE v50 values hold two or more distinct junction chains of the
+  same gene. Use XS when such isoforms must be kept apart. See `TAG_FORMAT.md` → XC Tag.
+- `@PG` header now reports `VN:2.5.0`.
+
 ## [2.4.0] - 2026-08-05
 
 ### 🧬 Major Release: X5/X3 Tags, XC v11.0 Rewrite, VRS v2 XV

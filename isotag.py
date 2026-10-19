@@ -11,7 +11,7 @@ Tags added:
     XB:Z: Reversible boundary tag (8-char chr hash + hex 5'/3' ends)
     XS:Z: Reversible splicetag (8-char chr hash + hex coordinates)
     XT:Z: Transcript group ID (32-char hash, position-based clustering)
-    XC:Z: Locus ID (spatial bin tag - chr+strand+binned positions only)
+    XC:Z: Cluster ID (32-char hash; v12.0 end-free: internal-span anchor + binned intron/internal exon lengths)
     X5:Z: TSS cluster ID (32-char hash, binned 5' transcript end)
     X3:Z: PolyA cluster ID (32-char hash, binned 3' transcript end)
     XV:Z: GA4GH VRS v2 Allele IDs (SNVs/substitutions, comma-separated, if variant detection enabled)
@@ -272,7 +272,8 @@ class IsoformTagger:
                  xc_bin_size: int = 10,
                  xc_position_quantum: int = 1000,
                  x5x3_bin_size: int = 200,
-                 xc_midpoint_only: bool = False):
+                 xc_midpoint_only: bool = False,
+                 xc_version: int = 12):
         """
         Initialize IsoformTagger
 
@@ -288,6 +289,14 @@ class IsoformTagger:
                                  Coarser than xc_bin_size for locus anchoring.
             x5x3_bin_size: Bin size for X5/X3 end position bins (bp, default: 200).
                            Groups reads by TSS (X5) or polyA site (X3) within this window.
+            xc_version: 12 (default since v2.5.0) = end-free: internal-span midpoint binned by
+                        xc_position_quantum, then internal span, intron lengths and INTERNAL exon lengths
+                        binned by xc_bin_size; terminal exon lengths are left to X5/X3.
+                        11 (legacy, v2.4.x) = midpoint + ALL exon lengths binned (terminal exons included, so
+                        the tag changes whenever a read's 5'/3' end moves by >= one bin — measured 2026-10-12
+                        on HPRC Kinnex HG00097 vs GENCODE v50: 12.4% of multi-exon reads share an XC v11 value
+                        with an annotated transcript vs 46.9% for XT, 76.1% for XS and 76.9% for v12).
+                        v11 and v12 hashes are not comparable; re-tag to switch.
         """
         self.refget_mapping = refget_mapping or {}
         self.clustermode = clustermode
@@ -298,6 +307,9 @@ class IsoformTagger:
         self.xc_position_quantum = xc_position_quantum
         self.x5x3_bin_size = x5x3_bin_size
         self.xc_midpoint_only = xc_midpoint_only
+        if xc_version not in (11, 12):
+            raise ValueError(f"xc_version must be 11 or 12, got {xc_version!r}")
+        self.xc_version = xc_version
 
     def get_chromosome_hash(self, chrom_name: str, hash_length: int = 32) -> str:
         """
@@ -563,12 +575,13 @@ class IsoformTagger:
 
     def serialize_cluster_xc(self, chromosome: str, strand: str, exons: List[ExonBoundary]) -> str:
         """
-        Serialize transcript for XC cluster tag - midpoint + binned exon lengths (v11.0).
+        Serialize transcript for the XC cluster tag. Dispatches to serialize_cluster_xc_v12 (default);
+        the body below is the v11.0 legacy formula - midpoint + binned exon lengths (xc_version=11).
 
         XC groups transcripts with similar exon structure at the same genomic locus,
         tolerating ±1bp Nanopore splice site wobble without requiring junction coordinates.
 
-        Format: chr_hash_32|strand|middle_bin|exon_len_bin1|exon_len_bin2|...
+        Format (v11): chr_hash_32|strand|middle_bin|exon_len_bin1|exon_len_bin2|...
 
         Two bin sizes serve different purposes:
           - xc_position_quantum (default 1kb): coarse locus anchor via transcript midpoint.
@@ -584,6 +597,9 @@ class IsoformTagger:
         Returns:
             Serialized string for XC hashing (NO splice junction coordinates)
         """
+        if self.xc_version == 12 and not self.xc_midpoint_only:
+            return self.serialize_cluster_xc_v12(chromosome, strand, exons)
+        # v11 (legacy) path — also serves --xc-midpoint-only, the position-only baseline
         chr_hash = self.get_chromosome_hash(chromosome, hash_length=32)
         sorted_exons = sorted(exons)
 
@@ -613,9 +629,45 @@ class IsoformTagger:
 
         return '|'.join(parts)
 
+    def serialize_cluster_xc_v12(self, chromosome: str, strand: str, exons: List[ExonBoundary]) -> str:
+        """
+        Serialize transcript for XC v12.0 — END-FREE internal structure (default since IsoTag v2.5.0; 2026-10-12).
+
+        Why: XC v11 bins the first and last exon lengths, which are set by the read's 5'/3' ends, so two
+        reads of the same transcript with ends differing by >= 10 bp get different XC values. v12 drops the
+        terminal exon lengths entirely (X5/X3 carry the ends) and anchors on the internal span instead of
+        the read midpoint, so only the junction chain — modulo +-wobble absorbed by xc_bin_size bins —
+        determines the value.
+
+        Format (multi-exon): chr_hash_8 + strand(p/m) | ispan_mid_bin | ispan//B | intron1//B | exon2//B | ... | intronK//B
+          ispan = last acceptor - first donor (1-based exon_end / next_exon_start, as XS encodes them)
+          ispan_mid_bin = ((first donor + last acceptor) // 2) // xc_position_quantum
+          B = xc_bin_size. Including the intron lengths keeps "exon-shift" chains (same internal exon
+          lengths, different intron partition) apart; measured 8,010 reads/97k on chr22 would otherwise merge.
+        Format (mono-exon): chr_hash_8 + strand | S | midpoint // xc_position_quantum | length // xc_position_quantum
+        The multi-exon string is identical to bin/jXcSchemeBench.py's XC12ei{B} scheme, so benchmark numbers
+        transfer to tagged BAMs one-to-one.
+        """
+        sorted_exons = sorted(exons)
+        head = f"{self.get_chromosome_hash(chromosome, hash_length=8)}{'p' if strand == '+' else 'm'}"
+        q, b = self.xc_position_quantum, self.xc_bin_size
+        if len(sorted_exons) < 2:
+            mid = (sorted_exons[0].start + sorted_exons[0].end) // 2
+            length = sorted_exons[0].end - sorted_exons[0].start + 1
+            return '|'.join([head, 'S', str(mid // q), str(length // q)])
+        donors = [e.end for e in sorted_exons[:-1]]
+        acceptors = [e.start for e in sorted_exons[1:]]
+        d1, ak = donors[0], acceptors[-1]
+        parts = [head, str(((d1 + ak) // 2) // q), str((ak - d1) // b)]
+        for i in range(len(donors)):
+            parts.append(str((acceptors[i] - donors[i] - 1) // b))          # intron i
+            if i + 1 < len(donors):
+                parts.append(str((donors[i + 1] - acceptors[i] + 1) // b))  # internal exon between junctions i, i+1
+        return '|'.join(parts)
+
     def generate_cluster_xc_id(self, chromosome: str, strand: str, exons: List[ExonBoundary]) -> str:
         """
-        Generate XC cluster tag ID - midpoint + binned exon lengths (v11.0).
+        Generate XC cluster tag ID - end-free internal structure (v12.0, default), or midpoint + binned exon lengths (v11.0 legacy, xc_version=11).
 
         XC captures:
         - Chromosome (via RefGet hash)
@@ -1065,8 +1117,11 @@ class IsoformTagger:
               help='Bin size for X5/X3 end-site tags in bp (default: 200). '
                    'X5 clusters reads by TSS; X3 clusters reads by polyA site.')
 @click.option('--xc-midpoint-only', is_flag=True,
-              help='XC uses midpoint position only (no exon lengths) — for baseline comparison vs v11.0')
-def isotag(input_file, output, genome, refget, no_variants, keep_ambiguous_bases, clustermode, position_quantum, span_quantum, exon_quantum, xc_bin_size, xc_position_quantum, x5x3_bin_size, xc_midpoint_only):
+              help='XC uses midpoint position only (no exon lengths) — position-only baseline (forces the v11 formula)')
+@click.option('--xc-version', type=click.Choice(['11', '12']), default='12', show_default=True,
+              help='XC algorithm: 12 = end-free (internal-span anchor + intron/internal-exon length bins; ends left to X5/X3); '
+                   '11 = legacy v2.4 formula (midpoint + all exon lengths, terminal exons included). Hashes are not comparable across versions.')
+def isotag(input_file, output, genome, refget, no_variants, keep_ambiguous_bases, clustermode, position_quantum, span_quantum, exon_quantum, xc_bin_size, xc_position_quantum, x5x3_bin_size, xc_midpoint_only, xc_version):
     """
     IsoTag - Universal Isoform Tagger
 
@@ -1130,12 +1185,15 @@ def isotag(input_file, output, genome, refget, no_variants, keep_ambiguous_bases
     input_is_bam = input_path.suffix.lower() == '.bam'
     output_is_bam = output_path.suffix.lower() == '.bam'
 
-    click.echo("🧬 IsoTag v11.1 - XC Cluster Tag (midpoint + binned exon lengths) + GA4GH VRS v2 XV")
+    click.echo("🧬 IsoTag v2.5.0 - XC v12.0 end-free cluster tag + X5/X3 + GA4GH VRS v2 XV")
     click.echo(f"📥 Input: {input_path.name} ({'BAM' if input_is_bam else 'SAM'})")
     click.echo(f"📤 Output: {output_path.name} ({'BAM' if output_is_bam else 'SAM'})")
     click.echo(f"🎯 Cluster mode: {clustermode}")
     click.echo(f"📏 XT quantization: position={position_quantum}bp, span={span_quantum}bp, exon={exon_quantum}bp")
-    click.echo(f"🔗 XC: midpoint/{xc_position_quantum}bp bins, exon lengths/{xc_bin_size}bp bins")
+    if xc_version == '12':
+        click.echo(f"🔗 XC v12 (end-free): internal-span midpoint/{xc_position_quantum}bp, intron + internal exon lengths/{xc_bin_size}bp bins")
+    else:
+        click.echo(f"🔗 XC v11 (legacy): midpoint/{xc_position_quantum}bp bins, all exon lengths/{xc_bin_size}bp bins")
 
     # Load or generate RefGet mapping
     refget_mapping = RefGetCache.load_or_generate(genome, refget, keep_ambiguous_bases)
@@ -1156,6 +1214,7 @@ def isotag(input_file, output, genome, refget, no_variants, keep_ambiguous_bases
         xc_position_quantum=xc_position_quantum,
         x5x3_bin_size=x5x3_bin_size,
         xc_midpoint_only=xc_midpoint_only,
+        xc_version=int(xc_version),
     )
 
     # Statistics
@@ -1254,7 +1313,7 @@ def isotag(input_file, output, genome, refget, no_variants, keep_ambiguous_bases
         with pysam.AlignmentFile(input_for_processing, mode_r) as in_bam:
             header_dict = in_bam.header.to_dict()
             header_dict.setdefault('PG', []).append({
-                'ID': 'isotag', 'PN': 'isotag', 'VN': '2.4.0',
+                'ID': 'isotag', 'PN': 'isotag', 'VN': '2.5.0',
                 'CL': ' '.join(sys.argv),
             })
             out_header = pysam.AlignmentHeader.from_dict(header_dict)
@@ -1386,7 +1445,9 @@ def isotag(input_file, output, genome, refget, no_variants, keep_ambiguous_bases
         if stats['unique_xt_groups']['example']:
             click.echo(f"   XT:Z:{stats['unique_xt_groups']['example']} (32-char {clustermode} group)")
         if stats['unique_xc_clusters']['example']:
-            click.echo(f"   XC:Z:{stats['unique_xc_clusters']['example']} (32-char cluster, midpoint/{xc_position_quantum}bp + exon_lengths/{xc_bin_size}bp)")
+            xc_desc = (f"v12 end-free: internal-span mid/{xc_position_quantum}bp + intron/internal-exon lengths/{xc_bin_size}bp"
+                       if xc_version == '12' else f"v11 legacy: midpoint/{xc_position_quantum}bp + all exon lengths/{xc_bin_size}bp")
+            click.echo(f"   XC:Z:{stats['unique_xc_clusters']['example']} (32-char cluster, {xc_desc})")
         if stats['unique_variants']['example']:
             click.echo(f"   XV:Z:{stats['unique_variants']['example'][:50]}... (variant IDs)")
 

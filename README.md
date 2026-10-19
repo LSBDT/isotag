@@ -5,7 +5,16 @@
 [![GA4GH](https://img.shields.io/badge/GA4GH-RefGet--inspired-blue.svg)](https://samtools.github.io/hts-specs/refget.html)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18676569.svg)](https://doi.org/10.5281/zenodo.18676569)
 
-A production-ready system for generating standardized, RefGet-compatible isoform identifiers for long-read transcript sequencing data. **v2.4** adds TSS (X5) and PolyA (X3) cluster tags, rewrites the XC locus tag with validated isoform-length encoding, and ships a minimal 5-tool core toolkit (see [Toolkit Reference](#-toolkit-reference) below).
+A production-ready system for generating standardized isoform identifiers keyed on RefGet-inspired (masked sha512t24u) chromosome digests for long-read transcript sequencing data. **v2.5** replaces the XC cluster tag with an end-free splice-structure id (v12.0); **v2.4** added TSS (X5) and PolyA (X3) cluster tags and ships a minimal 5-tool core toolkit (see [Toolkit Reference](#-toolkit-reference) below).
+
+## 🎯 What's New in v2.5
+
+### **XC Tag v12.0 — end-free splice-structure id** 🔄 (replaces v11.0; breaking)
+- **Why**: v11.0 hashed the binned length of every exon, including the first and last — lengths set by the read's 5′/3′ ends. On HPRC Kinnex HG00097 (10.9 M multi-exon reads) only **12.4%** of reads shared an XC v11.0 value with a GENCODE v50 transcript, vs 46.9% (XT) and 76.1% (XS, exact junction chain).
+- **Now**: `chr8+strand | internal-span midpoint (1kb) | internal span (10bp) | intron_1 | exon_2 | ... | intron_K (10bp bins)` — only junction coordinates enter the hash; X5/X3 carry the ends. Same measurement: **76.9%** of reads match an annotated transcript; exactly one XC per XS junction chain (chr22 check: 18,852 chains, max 1; v11.0 mean 2.70, max 267); cross-gene collisions unchanged (162 vs 154 of ~600k GENCODE values).
+- **GENCODE version stability**: for the 253,720 transcripts shared by GENCODE v49 basic and v50, the XC v12.0 value is unchanged for 99.99% (same as XS); XC v11.0 for 46.2% (4.3% among transcripts whose version changed — UTR edits flipped the old tag).
+- **CLI**: `--xc-version 12` (default) / `11` (legacy v2.4 formula). Re-tag to switch — hashes are not comparable. Runtime unchanged.
+- **Known limitation**: isoforms whose internal structure differs by <10bp (e.g. NAGNAG acceptors) can share an XC; use XS to keep them apart. See [TAG_FORMAT.md](TAG_FORMAT.md) → XC Tag.
 
 ## 🎯 What's New in v2.4
 
@@ -28,9 +37,9 @@ A production-ready system for generating standardized, RefGet-compatible isoform
 | X3 | 200bp | PolyA_DB v4 (303,312 sites) | **29.16%** | 2.06% | **14×** |
 | X3 | 200bp | PolyASite v3.0 high-conf (88,284 sites) | 18.5% | — | — |
 
-### **XC Tag v11.0 Rewrite** 🔄 (replaces v10.0)
+### **XC Tag v11.0 Rewrite** 🔄 (replaces v10.0) *(superseded by v12.0 in v2.5 — v11.0 depended on read ends)*
 - **Algorithm**: `chr_hash | strand | middle_bin(1kb) | exon_len_bin1(10bp) | ...` — midpoint + binned exon lengths
-- **Isoform-sensitive**: Reads from different isoforms (different exon structure) receive different XC tags; terminal truncations usually share the same XC
+- **Isoform-sensitive**: Reads from different isoforms (different exon structure) receive different XC tags; *(2026-10 correction: this was not true — terminal exon lengths are binned at 10 bp, so reads of one transcript whose 5′/3′ ends differ by more than a bin receive different XC v11 values; fixed by v12.0)*
 - **Validated**: 76.0% multi-read cluster purity; ARI=0.4238; V-measure H=0.913 vs GENCODE v47 gene annotation (MPC human dataset, hg38)
 - ⚠️ **Wobble caveat**: 10bp length bins tolerate ±1bp for single-junction reads (~80% same tag), but 7-junction reads fail ~79% of the time at any junction. Use XC for locus-level grouping, not exact isoform identity — use **XI** for exact matches.
 - **Breaking change from v10.0**: Re-tag with `isotag.py` — v10.0 and v11.0 hashes are incompatible
@@ -92,18 +101,18 @@ A production-ready system for generating standardized, RefGet-compatible isoform
 - **Sample-independent**: consistent grouping across experiments
 
 ### **Universal Chromosome Hashing** 🌍
-- **RefGet-based**: Uses GA4GH sequence identifiers
+- **RefGet-inspired**: GA4GH sha512t24u digests of IUPAC-masked chromosome sequences (canonical unmasked RefGet only for XV)
 - **Auto-caching**: Generates RefGet cache from genome FASTA automatically
 - **Cross-database**: Same chromosome sequence = same hash regardless of naming
 
-## 📋 Tag Format (v2.4.0)
+## 📋 Tag Format (v2.5.0)
 
 ```bash
 XI:Z:fuIF7PN23g2gq9sFxqhUNGnfOCZhkQJS              # Structure ID (32-char)
 XB:Z:aKF498dAp.3e8.1004                           # Boundary tag (8-char chr + hex ends)
 XS:Z:aKF498dAp.4b0.7d0.866.bb8                    # Splicetag (8-char chr + hex coords)
 XT:Z:266CbPqmZz8eS-EzT4xtnYtmm-SoIhnL              # Transcript group (32-char, exact junctions)
-XC:Z:yQ61R9bjPTau4Rm13SDg3D0MVr_EIos3              # Cluster ID (midpoint + exon lengths, v11.0)
+XC:Z:yQ61R9bjPTau4Rm13SDg3D0MVr_EIos3              # Cluster ID (end-free splice structure, v12.0)
 X5:Z:H6hLexXgCSsl8SDqLZs8zbJzUaaqTNif              # TSS cluster (binned 5' end, 200bp default)
 X3:Z:9ho2wDAU3-1r3o8SPNK_5FhTlbWGKIQC              # PolyA cluster (binned 3' end, 200bp default)
 XV:Z:ga4gh:VA.gbvJw0s4OeAvloCeAM6BNNvrjFC_Dhc8     # GA4GH VRS v2 Allele ID (comma-separated, optional; v2.4+)
@@ -117,7 +126,7 @@ XV:Z:ga4gh:VA.gbvJw0s4OeAvloCeAM6BNNvrjFC_Dhc8     # GA4GH VRS v2 Allele ID (com
 | **XB** | Boundary Tag | `[8-chr][s].[hex1].[hex2]` | Reversible 5'/3' transcript ends |
 | **XS** | Splicetag | `[8-chr][s].[hex1].[hex2]...` | Reversible splice junction coordinates |
 | **XT** | Transcript Group | 32-char hash | Biological clustering (exact splice junctions; not wobble-tolerant) |
-| **XC** | Cluster ID | 32-char hash | Locus cluster (midpoint 1kb + exon lengths 10bp bins; v11.0) |
+| **XC** | Cluster ID | 32-char hash | Splice-structure cluster, end-free (internal span 1kb/10bp + intron/internal-exon lengths 10bp; v12.0) |
 | **X5** | TSS Cluster | 32-char hash | TSS cluster by binned 5' end (default 200bp) |
 | **X3** | PolyA Cluster | 32-char hash | PolyA cluster by binned 3' end (default 200bp) |
 | **XV** | Variants | `ga4gh:VA.<32-char>`, comma-separated | GA4GH VRS v2 Allele IDs, SNVs/substitutions only (optional; v2.4+) |
@@ -157,8 +166,8 @@ python3 isotag.py -i cage.bam -o tagged.bam -g reference.fa --clustermode 5prime
 # PolyA data (3' TES clustering)
 python3 isotag.py -i polya.bam -o tagged.bam -g reference.fa --clustermode 3prime
 
-# Fine-grained gene/locus clustering (100bp XC bins)
-python3 isotag.py -i input.bam -o tagged.bam -g reference.fa --xc-bin-size 100
+# XC defaults: v12.0 formula, 10bp length bins (equivalent to --xc-version 12 --xc-bin-size 10)
+python3 isotag.py -i input.bam -o tagged.bam -g reference.fa --xc-version 12 --xc-bin-size 10
 ```
 
 ### Decode Tags
@@ -194,7 +203,7 @@ Pre-tagged BAM files are available on Zenodo for both hg38 and T2Tv2 genomes, an
 
 All files contain the full IsoTag set (XI, XB, XS, XT, XC, XV tags) and can be used as benchmarks for validating your own tagged BAMs.
 
-> **Note:** Zenodo BAMs use GENCODE v49 annotations. The validation metrics reported in this README (purity, ARI, V-measure) were computed on an internal dataset against GENCODE v47. These metrics are not directly comparable to results derived from the Zenodo BAMs.
+> **Note — which dataset each number comes from:** Zenodo example BAMs use GENCODE v49 / RefSeq. The XC v11.0 purity / ARI / V-measure figures were computed on an internal, under-described hg38 long-read dataset (MPC) against GENCODE v47 **gene** annotation. The v2.5 XC v12.0 figures come from the public HPRC Kinnex sample HG00097 (and the 206-sample cohort) against GENCODE v50; the version-stability figure compares GENCODE v49 basic with v50. None of these are directly comparable with each other or with results derived from the Zenodo BAMs.
 
 ## 📖 Detailed Examples
 
@@ -245,8 +254,6 @@ python3 decode_tags.py -b "aKF498dAp.3e8.1004" -s "aKF498dAp.4b0.7d0"
 
 ## Background
 
-Long-read RNA sequencing has enabled the detection of tens of thousands of novel transcripts, yet standardizing this molecular variability across tools, datasets, and databases remains an open challenge. As noted by Monzó, Frankish & Conesa (*Genome Research*, 2025), the community must "agree on the strategy to capture molecular variability while still defining reference annotations that are useful for the genomics community" ([doi:10.1101/gr.279865.124](https://doi.org/10.1101/gr.279865.124)).
-
 IsoTag addresses this by providing read-level deterministic tags written directly into BAM files. Unlike transcript assembly tools (IsoQuant, StringTie2) or quantification tools (Bambu, oarfish, TranSigner) — which output GTF files or expression matrices — IsoTag encodes transcript identity as permanent, portable BAM tags. The result is an analysis-ready BAM that any downstream tool can consume without re-running alignment or reassembly.
 
 ## 🧬 Use Cases
@@ -293,14 +300,16 @@ chr_hash_32 = refget_id       # Full 32 chars - for XI/XT/XC/XV tags
 
 > **⚠️ Hash collision probability**: IsoTag uses 24-byte (192-bit) truncated SHA-512. The probability of any two different sequences producing the same hash is <10⁻⁴⁶ — negligible for any realistic transcript dataset.
 
-### XC Tag Limitations (v11.0)
+### XC Tag Limitations (v12.0)
 
-The XC locus tag groups transcripts by genomic midpoint (1kb bins) + binned exon lengths (10bp bins). Key limitations:
+The XC tag groups reads by internal splice structure (internal-span midpoint, 1kb bins; internal span, intron and internal-exon lengths, 10bp bins). Read ends and terminal exon lengths are not encoded. Key limitations:
 
-- **Hard bin boundaries**: A gene spanning a bin boundary produces two different XC tags for reads at each end. Two reads from the same gene can receive different XC tags if their midpoints fall in adjacent 1kb bins.
-- **Wobble tolerance degrades with junction count**: Single-junction reads tolerate ±1bp (80% same tag); 7-junction reads have 79% probability of bin boundary cross. Median human transcript has 6–8 junctions.
-- **XC is a locus/isoform tag, not a gene ID.** Empirical validation (hg38, MPC dataset, GENCODE v47): multi-read cluster purity = **76.0%**; false merge rate = **24.0%**; ARI vs gene annotation = 0.4238. Both XC v11.0 and midpoint-only XC (73.5%) remain below 1kb genomic background (80.4%) — enrichment 0.946×.
-- **Alternative 3' ends**: Transcripts with different polyadenylation sites in different bins get different XC tags even if they share the same 5' end.
+- **Chain-level, not gene-level.** Every distinct internal junction structure of a gene gets its own XC; a read truncated past a junction gets a different XC from the full-length read. Use X5/X3 or an annotation for locus/gene grouping.
+- **10bp bins merge near-identical isoforms.** Internal differences smaller than one bin (e.g. NAGNAG acceptor shifts) can share an XC: 17,126 of ~600k GENCODE v50 values hold two or more distinct junction chains of the same gene. Use **XS** when those must be kept apart.
+- **Wobble tolerance is per length term.** A 1bp shift at one junction changes two 10bp length terms; each crosses a bin boundary with probability 0.1, so ~81% of single-junction wobbles keep the XC (measured on chr22 HPRC reads: 1.07 XS chains per XC value, max 23).
+- **Mono-exon reads** get a coarse 1kb locus id only (no internal structure).
+- **Hard bin boundary on the locus anchor**: reads of the same structure whose internal-span midpoint falls in adjacent 1kb bins differ — this cannot happen for reads sharing the same junctions (the midpoint is then identical), only across junction wobble.
+- **Cross-gene collisions** are those of the junction chain itself (overlapping / read-through loci): 162 of ~600k GENCODE v50 values, the same order as XS (154).
 
 ### Auto RefGet Cache System
 
@@ -353,11 +362,16 @@ aKF498dAp.4b0.7d0.866.bb8
 # Custom position quantization (default: 10000bp)
 python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --position-quantum 5000
 
-# Custom genomic span quantization (default: 10000bp)
-python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --span-quantum 5000
+# Custom genomic span quantization (default: 1000bp)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --span-quantum 500
 
 # Custom exon length quantization (default: 1000bp)
 python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --exon-quantum 500
+
+# XC cluster tag (defaults: --xc-version 12, --xc-bin-size 10, --xc-position-quantum 1000)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --xc-version 12 --xc-bin-size 10
+# Legacy v2.4 XC formula (end-dependent; hashes not comparable with v12)
+python3 isotag.py -i input.bam -o tagged.bam -g genome.fa --xc-version 11
 ```
 
 ### Output Control
@@ -451,9 +465,9 @@ For issues and questions:
 
 If you use IsoTag in your research, please cite:
 ```
-IsoTag: Universal Isoform Identification System using RefGet-compatible Identifiers
+IsoTag: Universal Isoform Identification System using RefGet-inspired Identifiers
 GitHub: https://github.com/LSBDT/isotag
-Version: 2.4.0 (2026)
+Version: 2.5.0 (2026)
 ```
 
 ## 🔗 Related Resources
@@ -468,4 +482,4 @@ Version: 2.4.0 (2026)
 
 ---
 
-**Status**: ✅ Production Ready | **Version**: 2.4.0 | **Last Updated**: June 2026
+**Status**: ✅ Production Ready | **Version**: 2.5.0 | **Last Updated**: October 2026

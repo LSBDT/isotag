@@ -1,4 +1,4 @@
-# IsoTag Tag Format Specification v2.4
+# IsoTag Tag Format Specification v2.5
 
 This document provides the complete technical specification for all IsoTag BAM/SAM tags.
 
@@ -9,7 +9,7 @@ This document provides the complete technical specification for all IsoTag BAM/S
 - [XB Tag - Boundary Tag](#xb-tag---boundary-tag)
 - [XS Tag - Splicetag](#xs-tag---splicetag)
 - [XT Tag - Transcript Group](#xt-tag---transcript-group)
-- [XC Tag - Gene/Locus ID](#xc-tag---genelocus-id)
+- [XC Tag - Cluster ID (v12.0, end-free)](#xc-tag---cluster-id-v120-end-free)
 - [XV Tag - Variants](#xv-tag---variants)
 - [RefGet Chromosome Hashing](#refget-chromosome-hashing)
 - [Encoding Algorithms](#encoding-algorithms)
@@ -19,13 +19,13 @@ This document provides the complete technical specification for all IsoTag BAM/S
 
 ## Overview
 
-IsoTag v2.4 uses **eight custom BAM tags** to encode transcript isoform structure, splice junctions, biological clustering, locus identity, TSS/polyA sites, and variants:
+IsoTag v2.5 uses **eight custom BAM tags** to encode transcript isoform structure, splice junctions, biological clustering, locus identity, TSS/polyA sites, and variants:
 
 - **XI**: Unique isoform structure identifier (32-char hash)
 - **XB**: Reversible boundary tag (8-char chr hash + hex-encoded ends)
 - **XS**: Reversible splicetag (8-char chr hash + hex-encoded splice junctions)
 - **XT**: Biological transcript group (32-char hash, exact splice junction matching)
-- **XC**: Locus cluster identifier (32-char hash, midpoint + binned exon lengths; v11.0)
+- **XC**: Splice-structure cluster identifier (32-char hash, end-free: internal span + binned intron/internal-exon lengths; v12.0)
 - **X5**: TSS cluster (32-char hash, binned 5′ end; default 200bp bins)
 - **X3**: PolyA cluster (32-char hash, binned 3′ end; default 200bp bins)
 - **XV**: GA4GH VRS v2 Allele identifiers (SNVs/substitutions, comma-separated, optional; v2.4+)
@@ -48,7 +48,7 @@ IsoTag v2.4 uses **eight custom BAM tags** to encode transcript isoform structur
 | **XB** | Z (string) | Variable | **Yes** | 5′/3′ transcript boundary coordinates |
 | **XS** | Z (string) | Variable | **Yes** | Internal splice junction coordinates |
 | **XT** | Z (string) | 32 chars | No | Transcript group (exact splice junctions) |
-| **XC** | Z (string) | 32 chars | No | Locus cluster (midpoint + exon lengths; v11.0) |
+| **XC** | Z (string) | 32 chars | No | Splice-structure cluster, end-free (v12.0) |
 | **X5** | Z (string) | 32 chars | No | TSS cluster (binned 5′ end) |
 | **X3** | Z (string) | 32 chars | No | PolyA cluster (binned 3′ end) |
 | **XV** | Z (string) | Variable | No | GA4GH VRS v2 Allele IDs (comma-separated; v2.4+) |
@@ -293,7 +293,7 @@ def reconstruct_exons(xb_tag: str, xs_tag: str) -> List[Tuple[int, int]]:
 ## XT Tag - Transcript Group
 
 ### Purpose
-Biological transcript group using exact splice junction coordinates. Transcripts with identical splice junctions (same exon boundaries) share the same XT tag. **Not wobble-tolerant**: any ±1bp Nanopore junction wobble produces a different XT hash. Use XC for locus-level grouping with partial wobble tolerance.
+Biological transcript group using exact splice junction coordinates. Transcripts with identical splice junctions (same exon boundaries) share the same XT tag. **Not wobble-tolerant**: any ±1bp Nanopore junction wobble produces a different XT hash. Use XC (v12.0) for end-independent structure grouping with 10 bp bin tolerance.
 
 ### Format
 ```
@@ -403,94 +403,103 @@ def generate_xt_group_id(chr_refget_32: str, strand: str, exons: List[Tuple[int,
 
 ---
 
-## XC Tag - Locus Cluster ID (v11.0)
+## XC Tag - Cluster ID (v12.0, end-free)
+
+> **Status: Experimental** — XC is available and functional but has known limitations documented below. It is a splice-structure cluster id, not a gene id.
+>
+> **Breaking change in v12.0 (October 2026, IsoTag v2.5.0):** the XC serialization was redesigned again. v11.0 hashed the binned length of *every* exon, including the first and last one. Those two lengths are set by where the read starts and ends, so v11.0 silently required 5′/3′ agreement within a 10 bp bin: on HPRC Kinnex HG00097 (10.9 M multi-exon reads) only 12.4% of reads shared an XC v11.0 value with a GENCODE v50 transcript, versus 46.9% for XT and 76.1% for the exact junction chain XS. v12.0 drops the terminal exon lengths and anchors on the internal span instead of the read midpoint; the same measurement gives 76.9%. v11.0 and v12.0 hashes are not comparable — re-tag with `isotag.py` (v11.0 remains available as `--xc-version 11`).
 
 ### Purpose
-Locus cluster identifier grouping transcripts by genomic midpoint and binned exon lengths. Designed as an isoform-tolerant locus ID: nearby isoforms tend to share the same XC, while transcripts at different loci get different XC values.
-
-⚠️ **Breaking change from v10.0** (pure location only): v11.0 encodes exon lengths in addition to midpoint. v10.0 and v11.0 tags are bit-for-bit incompatible — re-tag existing BAMs.
+Groups reads that share the same **internal splice structure** at the same locus, independent of their 5′/3′ ends. Only junction coordinates enter the serialization: terminal exon lengths, TSS and polyA positions do not (they are carried by X5/X3/XB). Compared with XS (exact junction coordinates), XC tolerates small junction shifts through 10 bp length bins; compared with XT, it is not split by read ends.
 
 ### Format
 ```
 XC:Z:[32-character-hash]
 ```
 
-### Serialization (before hashing, v11.0)
-```
-[32-chr-refget-hash]|[strand]|[middle_bin]|[len_bin1]|[len_bin2]|...
-```
+### Serialization (before hashing) — v12.0
 
+Multi-exon reads (K junctions, K ≥ 1). Exons are sorted by coordinate (1-based, inclusive, as in XS); `d_i` is the donor (end) of exon *i*, `a_i` the acceptor (start) of exon *i+1*:
+```
+[8-chr-refget][s]|[ispan_mid_bin]|[ispan_bin]|[intron_1_bin]|[exon_2_bin]|[intron_2_bin]|...|[exon_K_bin]|[intron_K_bin]
+```
 Where:
-- **middle_bin** = `(transcript_start + transcript_end) // 2 // xc_position_quantum`
-- **xc_position_quantum** = configurable (default: 1000bp)
-- **len_binN** = `exon_length_N // xc_bin_size` for each exon, sorted by position
-- **xc_bin_size** = configurable (default: 10bp)
+- `[8-chr-refget]` = first 8 characters of the chromosome RefGet digest (same prefix XS/XB use); `[s]` = `p` (+ strand) or `m` (− strand)
+- `ispan_mid_bin = ((d_1 + a_K) // 2) // xc_position_quantum` — midpoint of the **internal span** (first donor to last acceptor), default 1000 bp bins
+- `ispan_bin = (a_K − d_1) // xc_bin_size` — internal span length, default 10 bp bins
+- `intron_i_bin = (a_i − d_i − 1) // xc_bin_size` — every intron length
+- `exon_i_bin = (d_i − a_{i−1} + 1) // xc_bin_size` — every **internal** exon length (exons 2..K); the first and last exon are not encoded
+- The intron terms keep "exon-shift" structures apart (same internal exon lengths, different intron partition); the span term separates alternative first/last exons that leave the internal exons unchanged.
+
+Mono-exon reads have no internal structure; XC falls back to a coarse locus id:
+```
+[8-chr-refget][s]|S|[midpoint // xc_position_quantum]|[length // xc_position_quantum]
+```
 
 ### Example
 ```bash
-# Input
-Chromosome: chr1 (RefGet: aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2)
-Strand: +
-Exons: 1000000-1001200, 1005000-1005150, 1010000-1020000
-# Exon lengths: 1200, 150, 10000
-# midpoint = (1000000 + 1020000) / 2 = 1010000
-# middle_bin = 1010000 // 1000 = 1010
-# len_bins: 1200//10=120, 150//10=15, 10000//10=1000
+# Input (v12.0 defaults: xc_position_quantum=1000, xc_bin_size=10)
+Chromosome: chr1 (test-suite fallback hash; with a RefGet mapping the digest prefix is used), strand +
+Exons: 1000-1200, 5000-5150, 10000-20000
+Donors d = (1200, 5150); acceptors a = (5000, 10000)
+ispan_mid_bin = ((1200 + 10000) // 2) // 1000 = 5600 // 1000 = 5
+ispan_bin     = (10000 - 1200) // 10 = 880
+intron_1_bin  = (5000 - 1200 - 1) // 10 = 379
+exon_2_bin    = (5150 - 5000 + 1) // 10 = 15
+intron_2_bin  = (10000 - 5150 - 1) // 10 = 484
+# First exon (201 bp) and last exon (10001 bp) are NOT encoded.
 
 # Serialization
-"aKF498dAxcJAqme6QYQ7EZ07-fiw8Kw2|+|1010|120|15|1000"
+"Tf9Oo0Dwp|5|880|379|15|484"
 
 # Final XC tag
-XC:Z:a7Bf9xK2mP3qR5tN8wY1zC4dF6hJ0lO
+XC:Z:H2CGaj_IMJtHrWMK1vcy-5cHZQqUmoVg
 ```
+A read of the same transcript that starts 300 bp downstream or ends 2 kb earlier has the same XC; a read missing the last junction (truncated before exon 3) does not — XC is chain-level, not gene-level.
 
-### XC vs XT Comparison
+### What changes XC and what does not (v12.0)
+| Change | XC v12.0 | XC v11.0 | XS | XT |
+|--------|----------|----------|----|----|
+| 5′ or 3′ end moves (any amount, same junctions) | same | differs if a terminal exon crosses a 10 bp bin | same | differs if a 10 kb / 1 kb bin is crossed |
+| One junction shifts by 1 bp (wobble) | same with probability ≈ 0.81 (two length terms, each crosses a 10 bp bin with p = 0.1) | similar | differs | differs |
+| Junction added / removed (truncation past a junction, skipped exon) | differs | differs | differs | differs |
+| Internal exon length differs by ≥ 10 bp | differs | differs | differs | differs |
 
-| Feature | XT (Transcript Group) | XC (Locus Cluster, v11.0) |
-|---------|----------------------|---------------------------|
-| Position | Binned (mode-based) | Midpoint binned (1kb) |
-| Strand | ✓ | ✓ |
-| Exon lengths | Quantized | Binned (10bp) |
-| Splice junctions | Exact | **Ignored** |
-| Wobble tolerance | None (exact hash) | Partial (±1bp for 1-junction reads) |
-| Same gene, different isoforms | Usually differ | May group if lengths similar |
-| Clustering level | Isoform group | Locus + length cluster |
+### Measured behaviour (HPRC Kinnex HG00097, GENCODE v50; 2026-10-12)
+| Metric | XC v11.0 | XT | XS | XC v12.0 |
+|--------|----------|----|----|----------|
+| Multi-exon reads whose tag value equals an annotated transcript's (10.9 M reads) | 12.4% | 46.9% | 76.1% | 76.9% |
+| GENCODE v50 multi-exon transcripts hit by ≥ 1 read | 3.1% | 10.5% | 18.4% | 20.1% |
+| Same, all 206 HPRC samples (2.9 G reads) | — | — | 54.6% | 55.8% |
+| Distinct XC values per XS junction chain (chr22, 400,680 multi-exon reads) | 2.70 (max 267) | — | 1 | **1.00 (max 1)** |
+| Same, full HG00097 (10.9 M multi-exon reads, 706,712 chains) | 2.84 (max 412) | — | 1 | **1.00 (max 1)** |
+| GENCODE v50 values shared by ≥ 2 genes (of ~600 k) | 15 | 74 | 154 | 162 |
+| GENCODE v50 values shared by ≥ 2 transcripts | 15,099 | 10,615 | 16,546 | 29,417 |
+| Gene-level purity of multi-read XC clusters (full HG00097 vs GENCODE v50 gene bodies) | 75.9% | — | — | 77.2% |
+| Gene completeness (genes held by a single XC value) | 19.0% | — | — | 20.7% |
+| ARI / V-measure vs genes (full HG00097) | 0.080 / 0.558 | — | — | 0.087 / 0.598 |
 
-### Wobble Tolerance Caveat
+The 29,417 shared v12.0 values on the annotation side split into 12,129 that hold transcripts with the **same junction chain** (they differ only in their ends — the intended merge), 17,126 that hold different chains of the **same gene** (internal differences smaller than one 10 bp bin, e.g. NAGNAG acceptor shifts, binned together) and 162 that span two genes (same order as XS's 154: overlapping or read-through loci). Use XS when isoforms differing by < 10 bp at a junction must be kept apart.
 
-At 10bp exon length bins, any ±1bp Nanopore junction wobble shifts one exon length by ±1bp.
-Probability of a bin boundary crossing = 20% per junction. For multi-junction transcripts:
-- 1-junction: 20% chance of bin change → ~80% same-XC
-- 3-junction: 1 − 0.80³ = 49% chance of change → majority get different XC
-- 7-junction: 1 − 0.80⁷ = 79% chance of change
-
-XC is **not** wobble-tolerant for transcripts with ≥3 junctions. Use XT for exact grouping.
-
-### Encoding Algorithm
-```python
-def serialize_cluster_xc(chr_refget_32: str, strand: str,
-                         exons: List[Tuple[int, int]],
-                         xc_position_quantum: int = 1000,
-                         xc_bin_size: int = 10) -> str:
-    """Generate XC tag locus cluster ID (v11.0)"""
-    sorted_exons = sorted(exons)
-    start = sorted_exons[0][0]
-    end = sorted_exons[-1][1]
-    midpoint = (start + end) // 2
-    middle_bin = midpoint // xc_position_quantum
-    exon_length_bins = [str((e - s) // xc_bin_size) for s, e in sorted_exons]
-
-    parts = [chr_refget_32, strand, str(middle_bin)] + exon_length_bins
-    serialization = '|'.join(parts)
-    return sha512t24u(serialization.encode('utf-8'))
+### Legacy v11.0 (`--xc-version 11`)
 ```
+[32-chr-refget]|[strand]|[middle_bin]|[exon_len_bin_1]|...|[exon_len_bin_N]
+middle_bin = (transcript_start + transcript_end) // 2 // xc_position_quantum ; exon_len_bin_i = exon_i_length // xc_bin_size
+```
+Every exon length is encoded, so the first and last bins move with the read's ends. Kept only for re-tagging legacy datasets; the position-only baseline `--xc-midpoint-only` also uses this formula without the length bins.
+
+### Known Limitations (v12.0)
+1. **Not a gene id.** Long genes carry many XC values (one per internal splice structure); isoforms of one gene that differ in any junction get different XC values. Group by locus with X5/X3 or by annotation if gene-level ids are needed.
+2. **Bin boundaries merge near-identical isoforms.** Internal differences smaller than `xc_bin_size` (10 bp) can fall into the same bin — 17,126 GENCODE v50 values hold two or more distinct chains of the same gene. Use XS for exact structure.
+3. **Mono-exon reads are locus-level only** (1 kb midpoint and length bins). They have no internal structure to encode.
+4. **Cross-gene collisions** are inherited from the junction chain itself (overlapping genes, read-through): 162 of ~600 k GENCODE values, the same order as XS.
+5. **Hash versions are not comparable.** BAMs tagged with v9.0, v10.0 or v11.0 must be re-tagged.
 
 ### Properties
 - **Length**: Always 32 characters
 - **Character set**: Base64URL (A-Z, a-z, 0-9, -, _)
-- **Reversibility**: No (one-way hash)
-- **CLI flags**: `--xc-position-quantum 1000` (locus bin size), `--xc-bin-size 10` (length bin)
-- **Midpoint-only mode**: `--xc-midpoint-only` disables exon-length binning (pure location baseline)
+- **Reversibility**: No (one-way hash); the junction chain itself is recoverable from XS
+- **CLI flags**: `--xc-version 12` (default) / `11` (legacy); `--xc-position-quantum 1000` (internal-span midpoint bin); `--xc-bin-size 10` (length bins); `--xc-midpoint-only` (position-only baseline, v11 formula)
 
 ---
 
@@ -638,8 +647,8 @@ def calculate_refget_id(chromosome_sequence: str) -> str:
 
 | Tag Type | Hash Length | Purpose |
 |----------|-------------|---------|
-| **XB, XS** | 8 chars | Compact reversible encoding |
-| **XI, XT, XC** | 32 chars | Full chromosome hash in serialization |
+| **XB, XS, XC (v12.0)** | 8 chars | Compact reversible encoding (XB/XS); XC v12.0 serialization prefix |
+| **XI, XT, XC (v11.0 legacy)** | 32 chars | Full chromosome hash in serialization |
 | **XV** | 32-char base64url per digest (`ga4gh:VA.<digest>`, comma-separated) | GA4GH VRS v2 Allele ID (see XV Tag section) |
 
 ### RefGet Cache Format
@@ -829,6 +838,8 @@ Full implementation available in:
 
 ## Version History
 
+- **v2.5.0** (2026-10-12): XC redesigned to v12.0 (end-free: internal-span anchor + binned intron/internal-exon lengths; terminal exon lengths dropped); `--xc-version 11` keeps the legacy formula
+- **v2.4.0** (2026-08-05): X5/X3 tags; XC v11.0 (midpoint + binned exon lengths); XV migrated to GA4GH VRS v2
 - **v2.2.0** (2026-02-09): Added XC gene/locus tag (pure location-based clustering)
 - **v2.0.0** (2025-10-02): Added XB/XS reversible tags, universal chromosome hashing, biological clustering
 - **v1.0.0** (2025-08-20): Initial release with XI/XV tags
